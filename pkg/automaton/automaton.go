@@ -404,11 +404,7 @@ func splitPartition(dfa *DFA, partition []int, stateToPartition []int) [][]int {
 		return [][]int{partition}
 	}
 
-	// Group states by their transition signature
-	type sig struct {
-		transitions string
-	}
-
+	// Group states by their transition signature.
 	groups := make(map[string][]int)
 	for _, s := range partition {
 		key := transitionSig(dfa, s, stateToPartition)

@@ -1,6 +1,7 @@
+---
 name: Release
 
-on:
+"on":
   push:
     tags:
       - 'v*'
@@ -26,10 +27,14 @@ jobs:
 
       - name: Build binaries
         run: |
-          GOOS=linux GOARCH=amd64 go build -o build/regfilter-check-linux-amd64 ./cmd/regfilter-check
-          GOOS=linux GOARCH=arm64 go build -o build/regfilter-check-linux-arm64 ./cmd/regfilter-check
-          GOOS=darwin GOARCH=amd64 go build -o build/regfilter-check-darwin-amd64 ./cmd/regfilter-check
-          GOOS=darwin GOARCH=arm64 go build -o build/regfilter-check-darwin-arm64 ./cmd/regfilter-check
+          GOOS=linux GOARCH=amd64 \
+            go build -o build/regfilter-check-linux-amd64 ./cmd/regfilter-check
+          GOOS=linux GOARCH=arm64 \
+            go build -o build/regfilter-check-linux-arm64 ./cmd/regfilter-check
+          GOOS=darwin GOARCH=amd64 \
+            go build -o build/regfilter-check-darwin-amd64 ./cmd/regfilter-check
+          GOOS=darwin GOARCH=arm64 \
+            go build -o build/regfilter-check-darwin-arm64 ./cmd/regfilter-check
 
       - name: Create Release
         uses: softprops/action-gh-release@v1

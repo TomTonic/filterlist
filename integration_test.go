@@ -14,7 +14,7 @@ type testLogger struct {
 	warnings []string
 }
 
-func (l *testLogger) Warnf(format string, args ...interface{}) {
+func (l *testLogger) Warnf(format string, _ ...interface{}) {
 	l.warnings = append(l.warnings, format)
 }
 

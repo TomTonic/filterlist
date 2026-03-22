@@ -30,8 +30,8 @@ type ActionConfig struct {
 	TTL      uint32
 }
 
-// PluginConfig holds all configuration for the regfilter plugin.
-type PluginConfig struct {
+// Config holds all configuration for the regfilter plugin.
+type Config struct {
 	WhitelistDir   string
 	BlacklistDir   string
 	Action         ActionConfig
@@ -43,7 +43,7 @@ type PluginConfig struct {
 // RegFilter is the CoreDNS plugin handler.
 type RegFilter struct {
 	Next    plugin.Handler
-	Config  PluginConfig
+	Config  Config
 	metrics *metrics.Registry
 
 	whitelist atomic.Value // *automaton.DFA

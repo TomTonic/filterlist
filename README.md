@@ -57,10 +57,49 @@ make build
 | Wildcard | `\|\|*.ads.example.com^` | Block subdomain pattern |
 | Hosts entry | `0.0.0.0 example.com` | Block via hosts format |
 
+## ABP and EasyList Compatibility
+
+This project intentionally implements a strict, DNS-oriented subset of Adblock Plus, EasyList, and AdGuard syntax. The parser is designed to extract host-based network rules that can be compiled into DFAs for domain matching. It does not attempt full browser-side filter semantics.
+
+### Supported subset
+
+| Rule family | Accepted examples | Behavior in `coredns-regfilter` |
+|-------------|-------------------|----------------------------------|
+| Basic host-based blocking rules | `\|\|example.com^`, `\|\|sub.example.com^` | Parsed into blocking domain patterns |
+| Exception rules | `@@\|\|example.com^`, `@@example.com` | Parsed into allow rules; whitelist wins over blacklist |
+| Host wildcards | `\|\|*.ads.example.com^`, `\|\|ads*.example.com^` | Preserved as wildcard domain patterns |
+| Hosts file entries | `0.0.0.0 example.com`, `127.0.0.1 example.com` | Parsed as blocking rules |
+| Selected no-op modifiers | `\|\|example.com^$important`, `\|\|example.com^$document`, `\|\|example.com^$all`, `\|\|example.com^$third-party` | Domain part is kept; modifier semantics are ignored |
+
+### Unsupported and logged
+
+| Rule family | Real-world examples | Why it is unsupported |
+|-------------|---------------------|------------------------|
+| Cosmetic rules | `##.banner`, `example.com#@#.sponsor`, `example.com#?#div:has(.ad)` | These are browser DOM rules, not DNS host rules |
+| Scriptlet and JS rules | `#%#//scriptlet('abort-on-property-read', 'alert')` | Requires browser runtime behavior |
+| HTML filtering rules | `$$script[tag-content="banner"]` | Operates on HTML bodies, not DNS names |
+| Path and URL rules | `\|\|example.com/path^`, `/ads/banner` | Cannot be reduced to a pure domain decision |
+| Semantics-changing network modifiers | `\|\|example.com^$script`, `\|\|example.com^$domain=foo.com`, `@@\|\|example.com^$xmlhttprequest` | Request context is unavailable in DNS matching |
+| Genericblock and generichide exceptions | `@@\|\|example.com^$genericblock`, `@@\|\|example.com^$generichide` | Browser filter-engine concepts, not DNS policy |
+
+### Real-world examples covered by tests
+
+The repository includes stricter regression tests against:
+
+- `testdata/filterlists/Adguard_filter_example.txt`
+- `testdata/filterlists/easylistgermany_example.txt`
+
+Those tests assert that:
+
+- supported host-based network rules are parsed from large real-world lists;
+- unsupported ABP and EasyList rule families are logged as unsupported instead of being treated as comments;
+- real exception rules that fit the supported subset are recognized as allow rules;
+- rules that depend on browser request context remain intentionally excluded.
+
 ### Unsupported (logged and skipped)
 
-- CSS selectors (`##`, `#@#`)
-- Scriptlets and advanced modifiers (`$script`, `$domain=`)
+- Non-network rules (`##`, `#@#`, `#?#`, `#$#`, `#%#`, `$$`)
+- Advanced modifiers with browser request semantics (`$script`, `$domain=`, `$xmlhttprequest`)
 - Path-only rules without hostnames
 
 ## Configuration Reference

@@ -44,8 +44,8 @@ func setup(c *caddy.Controller) error {
 	return nil
 }
 
-func parseConfig(c *caddy.Controller) (PluginConfig, error) {
-	cfg := PluginConfig{
+func parseConfig(c *caddy.Controller) (Config, error) {
+	cfg := Config{
 		Action: ActionConfig{
 			Mode: "nxdomain",
 			TTL:  3600,

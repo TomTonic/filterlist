@@ -27,7 +27,7 @@ func FuzzParseLine(f *testing.F) {
 		f.Add(s)
 	}
 
-	f.Fuzz(func(t *testing.T, line string) {
+	f.Fuzz(func(_ *testing.T, line string) {
 		// ParseLine should never panic regardless of input
 		_, _ = ParseLine(line)
 	})

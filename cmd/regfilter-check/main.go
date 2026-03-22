@@ -17,7 +17,6 @@ import (
 	"github.com/tomtonic/coredns-regfilter/internal/util"
 	"github.com/tomtonic/coredns-regfilter/pkg/automaton"
 	"github.com/tomtonic/coredns-regfilter/pkg/blockloader"
-	"github.com/tomtonic/coredns-regfilter/pkg/filterlist"
 )
 
 func main() {
@@ -72,7 +71,10 @@ func cmdValidate(args []string) {
 	wlDir := fs.String("whitelist", "", "whitelist directory")
 	blDir := fs.String("blacklist", "", "blacklist directory")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "validate parse error: %v\n", err)
+		os.Exit(1)
+	}
 
 	logger := cliLogger{}
 	exitCode := 0
@@ -121,7 +123,10 @@ func cmdMatch(args []string) {
 	blDir := fs.String("blacklist", "", "blacklist directory")
 	name := fs.String("name", "", "domain name to check")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "match parse error: %v\n", err)
+		os.Exit(1)
+	}
 
 	if *name == "" {
 		fmt.Fprintln(os.Stderr, "error: --name is required")
@@ -188,7 +193,10 @@ func cmdDumpDot(args []string) {
 	blDir := fs.String("blacklist", "", "blacklist directory")
 	out := fs.String("out", "whitelist.dot,blacklist.dot", "output files (comma-separated)")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "dump-dot parse error: %v\n", err)
+		os.Exit(1)
+	}
 
 	outFiles := strings.SplitN(*out, ",", 2)
 	wlOut := "whitelist.dot"
@@ -241,9 +249,4 @@ func cmdDumpDot(args []string) {
 		f.Close()
 		fmt.Printf("[%s] DOT written to %s\n", item.label, item.output)
 	}
-}
-
-// loadRules is a shared helper used to load and optionally separate allow/deny rules.
-func loadRules(dir string, logger filterlist.Logger) ([]filterlist.Rule, error) {
-	return blockloader.LoadDirectory(dir, logger)
 }

@@ -290,7 +290,7 @@ invalid##rule
 	}
 
 	var warnings []string
-	logger := &testLogger{warnFunc: func(format string, args ...interface{}) {
+	logger := &testLogger{warnFunc: func(format string, _ ...interface{}) {
 		warnings = append(warnings, format)
 	}}
 

@@ -42,7 +42,7 @@ type mockNextHandler struct {
 	called bool
 }
 
-func (m *mockNextHandler) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
+func (m *mockNextHandler) ServeDNS(_ context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	m.called = true
 	msg := new(dns.Msg)
 	msg.SetReply(r)
@@ -76,7 +76,7 @@ func TestServeDNSBlacklistNXDOMAIN(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
 		Next: next,
-		Config: PluginConfig{
+		Config: Config{
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}
@@ -101,7 +101,7 @@ func TestServeDNSBlacklistNullIP(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
 		Next: next,
-		Config: PluginConfig{
+		Config: Config{
 			Action: ActionConfig{
 				Mode:     "nullip",
 				NullIPv4: net.IPv4zero,
@@ -153,7 +153,7 @@ func TestServeDNSBlacklistRefuse(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
 		Next: next,
-		Config: PluginConfig{
+		Config: Config{
 			Action: ActionConfig{Mode: "refuse"},
 		},
 	}
@@ -174,7 +174,7 @@ func TestServeDNSWhitelistOverridesBlacklist(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
 		Next: next,
-		Config: PluginConfig{
+		Config: Config{
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}
@@ -197,7 +197,7 @@ func TestServeDNSNoMatch(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
 		Next: next,
-		Config: PluginConfig{
+		Config: Config{
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}
@@ -218,7 +218,7 @@ func TestServeDNSCaseInsensitive(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
 		Next: next,
-		Config: PluginConfig{
+		Config: Config{
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}
@@ -239,7 +239,7 @@ func TestServeDNSEmptyQuestion(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
 		Next: next,
-		Config: PluginConfig{
+		Config: Config{
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}

@@ -15,9 +15,9 @@ type testLogger struct {
 	msgs []string
 }
 
-func (l *testLogger) Warnf(format string, args ...interface{})  { l.log(format) }
-func (l *testLogger) Infof(format string, args ...interface{})  { l.log(format) }
-func (l *testLogger) Errorf(format string, args ...interface{}) { l.log(format) }
+func (l *testLogger) Warnf(format string, _ ...interface{})  { l.log(format) }
+func (l *testLogger) Infof(format string, _ ...interface{})  { l.log(format) }
+func (l *testLogger) Errorf(format string, _ ...interface{}) { l.log(format) }
 
 func (l *testLogger) log(msg string) {
 	l.mu.Lock()
@@ -82,7 +82,7 @@ func TestStartMissingDirs(t *testing.T) {
 		WhitelistDir: "/nonexistent/whitelist",
 		BlacklistDir: "/nonexistent/blacklist",
 		Logger:       logger,
-		OnUpdate:     func(wl *automaton.DFA, bl *automaton.DFA) {},
+		OnUpdate:     func(_ *automaton.DFA, _ *automaton.DFA) {},
 	})
 	if err != nil {
 		t.Fatalf("Start should not fail for missing dirs: %v", err)
@@ -103,7 +103,7 @@ func TestHotReload(t *testing.T) {
 		BlacklistDir: blDir,
 		Debounce:     50 * time.Millisecond,
 		Logger:       &testLogger{},
-		OnUpdate: func(wl *automaton.DFA, bl *automaton.DFA) {
+		OnUpdate: func(_ *automaton.DFA, bl *automaton.DFA) {
 			mu.Lock()
 			defer mu.Unlock()
 			lastBL = bl
