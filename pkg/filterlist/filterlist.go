@@ -8,8 +8,8 @@
 //   - Hosts entries: "0.0.0.0 example.com", "127.0.0.1 example.com"
 //
 // Unsupported constructs (logged and skipped):
-//   - CSS selectors (##, #@#)
-//   - Scriptlets and advanced modifiers ($script, $domain=, $third-party, etc.)
+//   - Non-network rules (##, #@#, #?#, #$#, $$, #%, ...)
+//   - Advanced modifiers that change rule semantics ($script, $domain=, etc.)
 //   - Path-only rules without hostnames
 package filterlist
 
@@ -93,13 +93,12 @@ func ParseLine(line string) (Rule, error) {
 	}
 
 	// Skip comments
-	if line[0] == '!' || line[0] == '#' || strings.HasPrefix(line, "[Adblock") {
+	if line[0] == '!' || strings.HasPrefix(line, "[Adblock") || isCommentLine(line) {
 		return Rule{}, errSkip
 	}
 
-	// Reject CSS selectors
-	if strings.Contains(line, "##") || strings.Contains(line, "#@#") || strings.Contains(line, "#?#") {
-		return Rule{}, fmt.Errorf("unsupported CSS selector rule: %s", truncate(line, 80))
+	if containsUnsupportedNonNetworkMarker(line) {
+		return Rule{}, fmt.Errorf("unsupported non-network rule: %s", truncate(line, 80))
 	}
 
 	// Check for exception rule prefix
@@ -197,9 +196,7 @@ func parseAdGuardPattern(s string) (string, error) {
 	}
 
 	// Strip leading | (start anchor) — less common but valid
-	if strings.HasPrefix(s, "|") {
-		s = s[1:]
-	}
+	s = strings.TrimPrefix(s, "|")
 
 	// Strip trailing ^ (separator) and | (end anchor)
 	s = strings.TrimRight(s, "^|")
@@ -254,6 +251,39 @@ func containsUnsupportedModifier(mods string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func isCommentLine(line string) bool {
+	if !strings.HasPrefix(line, "#") {
+		return false
+	}
+
+	return !containsUnsupportedNonNetworkMarker(line)
+}
+
+func containsUnsupportedNonNetworkMarker(line string) bool {
+	markers := []string{
+		"##",
+		"#@#",
+		"#?#",
+		"#@?#",
+		"#$#",
+		"#@$#",
+		"#$?#",
+		"#@$?#",
+		"#%#",
+		"#@%#",
+		"$$",
+		"$@$",
+	}
+
+	for _, marker := range markers {
+		if strings.Contains(line, marker) {
+			return true
+		}
+	}
+
 	return false
 }
 

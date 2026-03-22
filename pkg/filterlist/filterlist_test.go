@@ -1,8 +1,10 @@
 package filterlist
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -119,6 +121,10 @@ func TestParseLineHostsSkipLocalhost(t *testing.T) {
 
 func TestParseLineUnsupported(t *testing.T) {
 	unsupported := []string{
+		"##.ad-banner",
+		"#@#.ad-banner",
+		"#%#//scriptlet('abort-on-property-read', 'alert')",
+		"$$script[tag-content=\"banner\"]",
 		"example.com##.ad-banner",
 		"example.com#@#.ad-banner",
 		"example.com#?#.ad-banner",
@@ -131,6 +137,111 @@ func TestParseLineUnsupported(t *testing.T) {
 		_, err := ParseLine(line)
 		if err == nil || err == errSkip {
 			t.Errorf("ParseLine(%q) expected non-skip error, got %v", line, err)
+		}
+	}
+}
+
+func TestParseFileEasyListGermanyLogsUnsupportedNonNetworkRules(t *testing.T) {
+	path := filepath.Join("..", "..", "testdata", "filterlists", "easylistgermany_example.txt")
+
+	var warnings []string
+	logger := &testLogger{warnFunc: func(format string, args ...interface{}) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}}
+
+	rules, err := ParseFile(path, logger)
+	if err != nil {
+		t.Fatalf("ParseFile error: %v", err)
+	}
+	if len(rules) == 0 {
+		t.Fatal("expected parsed rules from easylist germany example")
+	}
+
+	assertContainsWarning(t, warnings, "unsupported non-network rule: ###Ad_Win2day")
+	assertContainsWarning(t, warnings, "unsupported non-network rule: ##.Werbung")
+	assertContainsWarning(t, warnings, "unsupported modifier in rule: @@||windowspro.de^$~third-party,xmlhttprequest")
+	assertContainsPattern(t, rules, "adnx.de")
+	assertContainsPattern(t, rules, "active-tracking.de")
+	assertContainsPattern(t, rules, "windows-pro.net")
+	assertNotContainsPattern(t, rules, "windowspro.de")
+	assertNotContainsPattern(t, rules, "ableitungsrechner.net")
+}
+
+func TestParseFileAdGuardExampleRecognizesSupportedNetworkRules(t *testing.T) {
+	path := filepath.Join("..", "..", "testdata", "filterlists", "Adguard_filter_example.txt")
+
+	var warnings []string
+	logger := &testLogger{warnFunc: func(format string, args ...interface{}) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}}
+
+	rules, err := ParseFile(path, logger)
+	if err != nil {
+		t.Fatalf("ParseFile error: %v", err)
+	}
+	if len(rules) < 1000 {
+		t.Fatalf("expected substantial parsed rule count from adguard example, got %d", len(rules))
+	}
+
+	assertContainsPattern(t, rules, "adsrvmedia.adk2.co")
+	assertContainsAllowPattern(t, rules, "ad.10010.com")
+	assertContainsAllowPattern(t, rules, "img.ads.tvb.com")
+	assertNotContainsWarning(t, warnings, "unsupported modifier in rule: ||adsrvmedia.adk2.co^$important")
+	assertNotContainsWarning(t, warnings, "unsupported modifier in rule: @@||ad.10010.com^")
+}
+
+func assertContainsWarning(t *testing.T, warnings []string, want string) {
+	t.Helper()
+
+	for _, warning := range warnings {
+		if strings.Contains(warning, want) {
+			return
+		}
+	}
+
+	t.Fatalf("expected warning containing %q", want)
+}
+
+func assertContainsPattern(t *testing.T, rules []Rule, want string) {
+	t.Helper()
+
+	for _, rule := range rules {
+		if rule.Pattern == want && !rule.IsAllow {
+			return
+		}
+	}
+
+	t.Fatalf("expected parsed blocking rule %q", want)
+}
+
+func assertContainsAllowPattern(t *testing.T, rules []Rule, want string) {
+	t.Helper()
+
+	for _, rule := range rules {
+		if rule.Pattern == want && rule.IsAllow {
+			return
+		}
+	}
+
+	t.Fatalf("expected parsed allow rule %q", want)
+}
+
+func assertNotContainsPattern(t *testing.T, rules []Rule, want string) {
+	t.Helper()
+
+	for _, rule := range rules {
+		if rule.Pattern == want {
+			t.Fatalf("did not expect parsed rule %q", want)
+		}
+	}
+}
+
+func assertNotContainsWarning(t *testing.T, warnings []string, want string) {
+	t.Helper()
+
+	for _, warning := range warnings {
+		if strings.Contains(warning, want) {
+			t.Fatalf("did not expect warning containing %q", want)
 		}
 	}
 }
