@@ -1,0 +1,12 @@
+# Hosts-style blocklist
+# Common hosts file format
+0.0.0.0 adserver.example.com
+0.0.0.0 banner.example.com
+127.0.0.1 tracking.example.com
+0.0.0.0 analytics.example.com
+::1 telemetry.example.com
+0.0.0.0 pixel.example.com
+# Localhost entries (should be skipped)
+127.0.0.1 localhost
+127.0.0.1 localhost.localdomain
+::1 ip6-localhost

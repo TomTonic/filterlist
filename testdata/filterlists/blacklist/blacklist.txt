@@ -1,0 +1,24 @@
+! Blacklist - blocked domains
+! Format: mixed AdGuard, EasyList, and hosts-style entries
+
+! AdGuard-style domain filters
+||ads.example.com^
+||tracker.example.com^
+||malware.example.org^
+||*.ad.doubleclick.net^
+||ads*.google-analytics.com^
+
+! Exception rule (should be treated as allow)
+@@||safe.example.com^
+
+! Hosts-style entries
+0.0.0.0 adserver.example.com
+127.0.0.1 tracking.example.net
+0.0.0.0 spyware.example.org
+
+! Wildcards
+||*.tracking.example.com^
+
+! Lines that should be skipped/warned
+example.com##.ad-banner
+||example.com/path/to/ad^

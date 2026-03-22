@@ -1,0 +1,6 @@
+! Whitelist - trusted domains
+! Format: AdGuard / EasyList domain filters
+@@||safe.example.com^
+@@||trusted.example.org^
+@@||cdn.example.com^
+@@||api.example.com^
