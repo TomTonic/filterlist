@@ -30,13 +30,15 @@ func TestStartAndStop(t *testing.T) {
 	blDir := t.TempDir()
 
 	// Write a filter file
-	os.WriteFile(filepath.Join(blDir, "test.txt"), []byte("||ads.example.com^\n"), 0644)
+	if err := os.WriteFile(filepath.Join(blDir, "test.txt"), []byte("||ads.example.com^\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
 
 	var mu sync.Mutex
 	var lastWL, lastBL *automaton.DFA
 	updateCount := 0
 
-	stop, err := Start(Config{
+	stop, err := Start(&Config{
 		WhitelistDir: wlDir,
 		BlacklistDir: blDir,
 		Debounce:     50 * time.Millisecond,
@@ -52,7 +54,11 @@ func TestStartAndStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start error: %v", err)
 	}
-	defer stop()
+	t.Cleanup(func() {
+		if stopErr := stop(); stopErr != nil {
+			t.Errorf("stop error: %v", stopErr)
+		}
+	})
 
 	// Initial compile should have been called
 	mu.Lock()
@@ -78,7 +84,7 @@ func TestStartAndStop(t *testing.T) {
 
 func TestStartMissingDirs(t *testing.T) {
 	logger := &testLogger{}
-	stop, err := Start(Config{
+	stop, err := Start(&Config{
 		WhitelistDir: "/nonexistent/whitelist",
 		BlacklistDir: "/nonexistent/blacklist",
 		Logger:       logger,
@@ -87,19 +93,25 @@ func TestStartMissingDirs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start should not fail for missing dirs: %v", err)
 	}
-	defer stop()
+	t.Cleanup(func() {
+		if stopErr := stop(); stopErr != nil {
+			t.Errorf("stop error: %v", stopErr)
+		}
+	})
 }
 
 func TestHotReload(t *testing.T) {
 	blDir := t.TempDir()
 
-	os.WriteFile(filepath.Join(blDir, "test.txt"), []byte("||ads.example.com^\n"), 0644)
+	if err := os.WriteFile(filepath.Join(blDir, "test.txt"), []byte("||ads.example.com^\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
 
 	var mu sync.Mutex
 	var lastBL *automaton.DFA
 	updateCount := 0
 
-	stop, err := Start(Config{
+	stop, err := Start(&Config{
 		BlacklistDir: blDir,
 		Debounce:     50 * time.Millisecond,
 		Logger:       &testLogger{},
@@ -113,11 +125,17 @@ func TestHotReload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start error: %v", err)
 	}
-	defer stop()
+	t.Cleanup(func() {
+		if stopErr := stop(); stopErr != nil {
+			t.Errorf("stop error: %v", stopErr)
+		}
+	})
 
 	// Write a new file to trigger reload
 	time.Sleep(100 * time.Millisecond)
-	os.WriteFile(filepath.Join(blDir, "new.txt"), []byte("||tracker.example.com^\n"), 0644)
+	if err := os.WriteFile(filepath.Join(blDir, "new.txt"), []byte("||tracker.example.com^\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
 
 	// Wait for debounce + compile
 	time.Sleep(500 * time.Millisecond)

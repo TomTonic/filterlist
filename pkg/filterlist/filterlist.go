@@ -15,6 +15,7 @@ package filterlist
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -64,7 +65,7 @@ func ParseFile(path string, logger Logger) ([]Rule, error) {
 		line := scanner.Text()
 		rule, err := ParseLine(line)
 		if err != nil {
-			if err != errSkip {
+			if !errors.Is(err, errSkip) {
 				logger.Warnf("%s:%d: %v", path, lineNum, err)
 			}
 			continue
@@ -79,7 +80,7 @@ func ParseFile(path string, logger Logger) ([]Rule, error) {
 }
 
 // errSkip is a sentinel for blank/comment lines that should be silently skipped.
-var errSkip = fmt.Errorf("skip")
+var errSkip = errors.New("skip")
 
 // ParseLine parses a single filter list line into a Rule.
 // Returns errSkip for blank lines and comments.
@@ -98,7 +99,7 @@ func ParseLine(line string) (Rule, error) {
 	}
 
 	if containsUnsupportedNonNetworkMarker(line) {
-		return Rule{}, fmt.Errorf("unsupported non-network rule: %s", truncate(line, 80))
+		return Rule{}, fmt.Errorf("unsupported non-network rule: %s", truncate(line))
 	}
 
 	// Check for exception rule prefix
@@ -112,7 +113,7 @@ func ParseLine(line string) (Rule, error) {
 	// Try hosts-style first: "IP domain [domain...]"
 	if rule, err := tryParseHosts(work, isAllow); err == nil {
 		return rule, nil
-	} else if err == errSkip {
+	} else if errors.Is(err, errSkip) {
 		return Rule{}, errSkip
 	}
 	// err == errNotHosts means it's not a hosts line, fall through
@@ -123,7 +124,7 @@ func ParseLine(line string) (Rule, error) {
 		modifiers := work[idx+1:]
 		// Check for modifiers we explicitly don't support as they change semantics
 		if containsUnsupportedModifier(modifiers) {
-			return Rule{}, fmt.Errorf("unsupported modifier in rule: %s", truncate(line, 80))
+			return Rule{}, fmt.Errorf("unsupported modifier in rule: %s", truncate(line))
 		}
 		work = work[:idx]
 	}
@@ -135,13 +136,13 @@ func ParseLine(line string) (Rule, error) {
 	}
 
 	if pattern == "" {
-		return Rule{}, fmt.Errorf("empty pattern after parsing: %s", truncate(line, 80))
+		return Rule{}, fmt.Errorf("empty pattern after parsing: %s", truncate(line))
 	}
 
 	return Rule{Pattern: pattern, IsAllow: isAllow}, nil
 }
 
-var errNotHosts = fmt.Errorf("not hosts")
+var errNotHosts = errors.New("not hosts")
 
 // tryParseHosts attempts to parse a hosts-style line (e.g. "0.0.0.0 example.com").
 // Returns errNotHosts if the line is not hosts-style, errSkip for localhost entries.
@@ -185,7 +186,7 @@ func isHostsIP(s string) bool {
 // canonical domain pattern. Returns an error for unsupported constructs.
 func parseAdGuardPattern(s string) (string, error) {
 	if s == "" {
-		return "", fmt.Errorf("empty pattern")
+		return "", errors.New("empty pattern")
 	}
 
 	// Strip leading || (domain anchor)
@@ -207,20 +208,20 @@ func parseAdGuardPattern(s string) (string, error) {
 	// We keep leading * because it means "match any subdomain prefix"
 
 	if s == "" {
-		return "", fmt.Errorf("empty pattern after stripping anchors")
+		return "", errors.New("empty pattern after stripping anchors")
 	}
 
 	s = strings.ToLower(s)
 
 	// Check for path components — we only handle domain filters
 	if strings.ContainsAny(s, "/:?=&") {
-		return "", fmt.Errorf("path-based rule not supported: %s", truncate(s, 80))
+		return "", fmt.Errorf("path-based rule not supported: %s", truncate(s))
 	}
 
 	// Validate remaining characters: allow DNS chars + wildcard
 	for _, r := range s {
 		if !util.IsDNSChar(r) && r != '*' {
-			return "", fmt.Errorf("invalid character %q in pattern: %s", r, truncate(s, 80))
+			return "", fmt.Errorf("invalid character %q in pattern: %s", r, truncate(s))
 		}
 	}
 
@@ -242,10 +243,8 @@ func containsUnsupportedModifier(mods string) bool {
 		}
 		// We support "important" and "document" as no-ops for domain filters.
 		// Everything else is unsupported.
-		switch {
-		case p == "important", p == "document", p == "all",
-			p == "first-party", p == "1p",
-			p == "third-party", p == "3p":
+		switch p {
+		case "important", "document", "all", "first-party", "1p", "third-party", "3p":
 			continue
 		default:
 			return true
@@ -287,9 +286,11 @@ func containsUnsupportedNonNetworkMarker(line string) bool {
 	return false
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
+const truncateLimit = 80
+
+func truncate(s string) string {
+	if len(s) <= truncateLimit {
 		return s
 	}
-	return s[:n] + "..."
+	return s[:truncateLimit] + "..."
 }

@@ -5,6 +5,7 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -56,13 +57,17 @@ func (c *Config) defaults() {
 
 // Start begins watching the configured directories and returns a stop function.
 // It performs an initial compilation before returning.
-func Start(cfg Config) (stop func() error, err error) {
+func Start(cfg *Config) (stop func() error, err error) {
+	if cfg == nil {
+		return nil, errors.New("watcher: nil config")
+	}
+
 	cfg.defaults()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	w := &dirWatcher{
-		cfg:    cfg,
+		cfg:    *cfg,
 		ctx:    ctx,
 		cancel: cancel,
 	}

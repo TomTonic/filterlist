@@ -131,8 +131,8 @@ Those tests assert that:
 | `coredns_regfilter_blacklist_hits_total` | Counter | Blacklist matches |
 | `coredns_regfilter_compile_errors_total` | Counter | Compile failures |
 | `coredns_regfilter_compile_duration_seconds` | Histogram | Compile time |
-| `coredns_regfilter_whitelist_rules_total` | Gauge | Current whitelist rule count |
-| `coredns_regfilter_blacklist_rules_total` | Gauge | Current blacklist rule count |
+| `coredns_regfilter_whitelist_rules` | Gauge | Current whitelist rule count |
+| `coredns_regfilter_blacklist_rules` | Gauge | Current blacklist rule count |
 
 ## Development
 

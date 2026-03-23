@@ -25,12 +25,20 @@ func TestLoadDirectory(t *testing.T) {
 	file2 := `0.0.0.0 malware.example.com
 0.0.0.0 bad.example.com
 `
-	os.WriteFile(filepath.Join(dir, "list1.txt"), []byte(file1), 0644)
-	os.WriteFile(filepath.Join(dir, "list2.hosts"), []byte(file2), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "list1.txt"), []byte(file1), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "list2.hosts"), []byte(file2), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
 	// Create a subdir that should be skipped
-	os.Mkdir(filepath.Join(dir, "subdir"), 0755)
+	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
+		t.Fatalf("Mkdir error: %v", err)
+	}
 	// Create an unsupported extension file
-	os.WriteFile(filepath.Join(dir, "notes.md"), []byte("not a filter"), 0644)
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("not a filter"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
 
 	logger := &testLogger{}
 	rules, err := LoadDirectory(dir, logger)

@@ -71,7 +71,12 @@ func (rf *RegFilter) GetWhitelist() *automaton.DFA {
 	if v == nil {
 		return nil
 	}
-	return v.(*automaton.DFA)
+	dfa, ok := v.(*automaton.DFA)
+	if !ok {
+		return nil
+	}
+
+	return dfa
 }
 
 // GetBlacklist returns the current blacklist DFA (may be nil).
@@ -80,7 +85,12 @@ func (rf *RegFilter) GetBlacklist() *automaton.DFA {
 	if v == nil {
 		return nil
 	}
-	return v.(*automaton.DFA)
+	dfa, ok := v.(*automaton.DFA)
+	if !ok {
+		return nil
+	}
+
+	return dfa
 }
 
 // ServeDNS implements the plugin.Handler interface.
@@ -176,7 +186,7 @@ func normalizeName(name string) string {
 
 // StartWatcher initializes the filesystem watcher for hot-reloading DFAs.
 func (rf *RegFilter) StartWatcher() error {
-	stop, err := watcher.Start(watcher.Config{
+	stop, err := watcher.Start(&watcher.Config{
 		WhitelistDir:   rf.Config.WhitelistDir,
 		BlacklistDir:   rf.Config.BlacklistDir,
 		Debounce:       rf.Config.Debounce,

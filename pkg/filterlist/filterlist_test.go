@@ -1,6 +1,7 @@
 package filterlist
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,7 +19,7 @@ func TestParseLineSkip(t *testing.T) {
 	}
 	for _, line := range skips {
 		_, err := ParseLine(line)
-		if err != errSkip {
+		if !errors.Is(err, errSkip) {
 			t.Errorf("ParseLine(%q) error = %v, want errSkip", line, err)
 		}
 	}
@@ -113,7 +114,7 @@ func TestParseLineHostsSkipLocalhost(t *testing.T) {
 	}
 	for _, line := range lines {
 		_, err := ParseLine(line)
-		if err != errSkip {
+		if !errors.Is(err, errSkip) {
 			t.Errorf("ParseLine(%q) expected errSkip for localhost entry, got %v", line, err)
 		}
 	}
@@ -135,7 +136,7 @@ func TestParseLineUnsupported(t *testing.T) {
 	}
 	for _, line := range unsupported {
 		_, err := ParseLine(line)
-		if err == nil || err == errSkip {
+		if err == nil || errors.Is(err, errSkip) {
 			t.Errorf("ParseLine(%q) expected non-skip error, got %v", line, err)
 		}
 	}
@@ -285,7 +286,7 @@ func TestParseFile(t *testing.T) {
 invalid##rule
 `
 	path := filepath.Join(dir, "test.txt")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

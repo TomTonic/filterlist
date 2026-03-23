@@ -51,13 +51,13 @@ func NewRegistryWith(reg prometheus.Registerer) *Registry {
 		WhitelistRules: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "whitelist_rules_total",
+			Name:      "whitelist_rules",
 			Help:      "Current number of rules in the whitelist DFA.",
 		}),
 		BlacklistRules: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "blacklist_rules_total",
+			Name:      "blacklist_rules",
 			Help:      "Current number of rules in the blacklist DFA.",
 		}),
 	}

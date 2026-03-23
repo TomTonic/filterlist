@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -119,7 +120,7 @@ func parseConfig(c *caddy.Controller) (Config, error) {
 					return cfg, fmt.Errorf("invalid max_states %q: %w", c.Val(), err)
 				}
 				if n <= 0 {
-					return cfg, fmt.Errorf("max_states must be positive")
+					return cfg, errors.New("max_states must be positive")
 				}
 				cfg.MaxStates = n
 			case "compile_timeout":

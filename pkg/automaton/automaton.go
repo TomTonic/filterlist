@@ -14,6 +14,7 @@
 package automaton
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -75,7 +76,8 @@ func buildPatternNFA(pattern string, ruleID int) (*nfa, error) {
 
 	current := start
 	for _, r := range pattern {
-		if r == '*' {
+		switch {
+		case r == '*':
 			// Wildcard: self-loop on all DNS chars
 			loopState := n.addState()
 			n.addTrans(current, epsilon, loopState)
@@ -83,11 +85,11 @@ func buildPatternNFA(pattern string, ruleID int) (*nfa, error) {
 				n.addTrans(loopState, c, loopState)
 			}
 			current = loopState
-		} else if util.IsDNSChar(r) {
+		case util.IsDNSChar(r):
 			next := n.addState()
 			n.addTrans(current, r, next)
 			current = next
-		} else {
+		default:
 			return nil, fmt.Errorf("unsupported character %q in pattern", r)
 		}
 	}
@@ -252,7 +254,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*DFA, error)
 
 	for len(worklist) > 0 {
 		if !deadline.IsZero() && time.Now().After(deadline) {
-			return nil, fmt.Errorf("automaton: subset construction timeout")
+			return nil, errors.New("automaton: subset construction timeout")
 		}
 
 		current := worklist[0]
@@ -294,9 +296,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*DFA, error)
 	return dfa, nil
 }
 
-func computeAccept(n *nfa, stateSet []int) (bool, []int) {
-	accept := false
-	var ruleIDs []int
+func computeAccept(n *nfa, stateSet []int) (accept bool, ruleIDs []int) {
 	seen := make(map[int]bool)
 	for _, s := range stateSet {
 		if n.states[s].accept {
@@ -399,7 +399,7 @@ func hopcroftMinimize(dfa *DFA) *DFA {
 	return minDFA
 }
 
-func splitPartition(dfa *DFA, partition []int, stateToPartition []int) [][]int {
+func splitPartition(dfa *DFA, partition, stateToPartition []int) [][]int {
 	if len(partition) <= 1 {
 		return [][]int{partition}
 	}
@@ -444,7 +444,7 @@ func ruleIDsKey(ids []int) string {
 
 // Match tests whether the input string is accepted by the DFA.
 // Returns whether a match was found and the associated rule IDs.
-func (d *DFA) Match(input string) (bool, []int) {
+func (d *DFA) Match(input string) (matched bool, ruleIDs []int) {
 	if d == nil || len(d.States) == 0 {
 		return false, nil
 	}
@@ -474,7 +474,7 @@ func (d *DFA) StateCount() int {
 // DumpDot writes a Graphviz DOT representation of the DFA to w.
 func (d *DFA) DumpDot(w io.Writer) error {
 	if d == nil {
-		return fmt.Errorf("nil DFA")
+		return errors.New("nil DFA")
 	}
 
 	fmt.Fprintln(w, "digraph DFA {")
