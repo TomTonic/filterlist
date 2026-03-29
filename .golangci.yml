@@ -39,7 +39,7 @@ linters:
         - style
     gosec:
       excludes:
-        - G404 # weak randomness is acceptable in tests and non-crypto helpers
+        - G404  # weak randomness is acceptable in tests and non-crypto helpers
       severity: medium
       confidence: medium
     govet:
