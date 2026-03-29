@@ -1,6 +1,6 @@
 module github.com/tomtonic/coredns-regfilter
 
-go 1.25.0
+go 1.26.1
 
 require (
 	github.com/coredns/caddy v1.1.4
@@ -8,6 +8,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/miekg/dns v1.1.72
 	github.com/prometheus/client_golang v1.23.2
+	github.com/prometheus/client_model v0.6.2
 	golang.org/x/net v0.52.0
 )
 
@@ -20,7 +21,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pires/go-proxyproto v0.11.0 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
