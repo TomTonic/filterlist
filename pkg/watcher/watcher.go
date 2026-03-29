@@ -76,6 +76,8 @@ func Start(cfg *Config) (stop func() error, err error) {
 	// Initial compile
 	wlDFA := w.compileDir(cfg.WhitelistDir, "whitelist")
 	blDFA := w.compileDir(cfg.BlacklistDir, "blacklist")
+	w.lastWLDFA = wlDFA
+	w.lastBLDFA = blDFA
 	if cfg.OnUpdate != nil {
 		cfg.OnUpdate(wlDFA, blDFA)
 	}

@@ -150,6 +150,61 @@ func TestHotReload(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestHotReloadKeepsPreviousDFAOnCompileFailure(t *testing.T) {
+	blDir := t.TempDir()
+	path := filepath.Join(blDir, "test.txt")
+
+	if err := os.WriteFile(path, []byte("||ads.example.com^\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	var mu sync.Mutex
+	var lastBL *automaton.DFA
+
+	stop, err := Start(&Config{
+		BlacklistDir: blDir,
+		Debounce:     50 * time.Millisecond,
+		Logger:       &testLogger{},
+		OnUpdate: func(_ *automaton.DFA, bl *automaton.DFA) {
+			mu.Lock()
+			defer mu.Unlock()
+			lastBL = bl
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	t.Cleanup(func() {
+		if stopErr := stop(); stopErr != nil {
+			t.Errorf("stop error: %v", stopErr)
+		}
+	})
+
+	mu.Lock()
+	if lastBL == nil {
+		mu.Unlock()
+		t.Fatal("expected initial blacklist DFA")
+	}
+	mu.Unlock()
+
+	time.Sleep(100 * time.Millisecond)
+	if err := os.WriteFile(path, []byte("##.banner\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if lastBL == nil {
+		t.Fatal("expected previous blacklist DFA to be preserved after failed rebuild")
+	}
+	matched, _ := lastBL.Match("ads.example.com")
+	if !matched {
+		t.Error("expected preserved blacklist DFA to keep matching ads.example.com")
+	}
+}
+
 func TestIsUnder(t *testing.T) {
 	tests := []struct {
 		path, dir string
