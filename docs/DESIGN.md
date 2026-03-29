@@ -89,6 +89,8 @@ DFA matching is O(n) where n is the input length:
 fsnotify event → debounce (300ms) → LoadDirectory → CompileRules → atomic.Value swap
 ```
 
+On startup, the watcher performs an initial compile for both directories and stores the resulting DFAs as the fallback baseline. Subsequent rebuilds replace only the automaton that changed.
+
 Safety invariants:
 - If compile fails, keep previous DFA
 - Only one compile pipeline runs at a time per directory
@@ -131,3 +133,32 @@ Total: 38 characters. This keeps the DFA transition tables small.
 ## Metrics
 
 All metrics use the `coredns_regfilter_` prefix and are exposed via Prometheus.
+
+### Counters and Gauges
+
+| Metric | Type | Meaning |
+|--------|------|---------|
+| `whitelist_checks_total` | Counter | Number of queries evaluated against the whitelist DFA |
+| `blacklist_checks_total` | Counter | Number of queries evaluated against the blacklist DFA |
+| `whitelist_hits_total` | Counter | Number of queries accepted because the whitelist DFA matched |
+| `blacklist_hits_total` | Counter | Number of queries blocked because the blacklist DFA matched |
+| `compile_errors_total` | Counter | Counter reserved for compile failure accounting |
+| `whitelist_rules` | Gauge | Current size of the compiled whitelist automaton in DFA states |
+| `blacklist_rules` | Gauge | Current size of the compiled blacklist automaton in DFA states |
+| `last_compile_timestamp_seconds` | Gauge | Unix timestamp of the most recent successful compilation |
+| `last_compile_duration_seconds` | Gauge | Duration of the most recent successful compilation |
+
+### Histograms and Summaries
+
+| Metric | Type | Meaning |
+|--------|------|---------|
+| `compile_duration_seconds` | Histogram | Distribution of compilation times across reloads |
+| `match_duration_seconds` | Summary | Distribution of per-query match latency |
+
+The `match_duration_seconds` summary is labeled by `result`:
+
+- `accept`: whitelist matched, query forwarded.
+- `reject`: blacklist matched, query blocked.
+- `pass`: no automaton matched, query forwarded unchanged.
+
+The check counters are the correct denominator for ratio calculations such as whitelist hit rate or blacklist hit rate.
