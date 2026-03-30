@@ -35,7 +35,7 @@ This project intentionally focuses on DNS-relevant host matching. Browser-only r
 ### Build
 
 ```bash
-make build
+go build -o build/regfilter-check ./cmd/regfilter-check
 ```
 
 This produces the helper CLI at `./build/regfilter-check`. If you are integrating the plugin into a custom CoreDNS build, make sure the `regfilter` plugin is included in that binary.
@@ -229,19 +229,20 @@ rate(coredns_regfilter_blacklist_checks_total[5m])
 
 ```bash
 # Run tests
-make test
+go test ./... -count=1
 
 # Run tests with race detector
-make test-race
+go test ./... -race -count=1
 
 # Run linter
-make lint
+golangci-lint run ./...
 
 # Generate coverage report
-make cover
+go test ./... -race -coverprofile=coverage.out -covermode=atomic
+go tool cover -html=coverage.out -o coverage.html
 
 # Run benchmarks
-make bench
+go test -bench=. -benchmem ./pkg/automaton ./pkg/filterlist
 ```
 
 ## Architecture

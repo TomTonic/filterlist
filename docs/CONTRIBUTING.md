@@ -11,10 +11,10 @@ cd coredns-regfilter
 go mod download
 
 # Run tests
-make test
+go test ./... -count=1
 
 # Run linter (requires golangci-lint)
-make lint
+golangci-lint run ./...
 ```
 
 ## Code Style
@@ -26,7 +26,7 @@ make lint
 ## Testing
 
 - All new code must have unit tests
-- Run `make test-race` to check for race conditions
+- Run `go test ./... -race -count=1` to check for race conditions
 - Aim for >90% coverage in core packages (`filterlist`, `automaton`, `blockloader`)
 - Add benchmarks for performance-critical changes
 
