@@ -10,9 +10,14 @@ import (
 	"github.com/tomtonic/coredns-regfilter/pkg/filterlist"
 )
 
-// LoadDirectory reads all filter list files from dir (non-recursively) and
-// returns the aggregated rules. IO errors are returned; parse errors within
-// files are logged and skipped.
+// LoadDirectory loads supported filter list files from dir and aggregates them.
+//
+// The dir parameter must point at a single directory and is scanned
+// non-recursively. The logger parameter may be nil and receives warnings for
+// unreadable files or skipped parse issues. LoadDirectory returns the combined
+// rule slice for all supported files, or an error when the directory itself
+// cannot be read. Callers typically use it during startup and hot reloads
+// before compiling the resulting rules into DFAs.
 func LoadDirectory(dir string, logger filterlist.Logger) ([]filterlist.Rule, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

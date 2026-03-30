@@ -9,6 +9,7 @@ import (
 	"testing"
 )
 
+// TestParseLineSkip verifies that users can keep comments and blank lines in filter lists without creating bogus rules in the filterlist parser by asserting that such lines are skipped silently.
 func TestParseLineSkip(t *testing.T) {
 	skips := []string{
 		"",
@@ -26,6 +27,7 @@ func TestParseLineSkip(t *testing.T) {
 	}
 }
 
+// TestParseLineAdGuardDomain verifies that users can import standard AdGuard host rules in the filterlist parser by asserting that anchored domain syntax becomes the expected canonical pattern.
 func TestParseLineAdGuardDomain(t *testing.T) {
 	tests := []struct {
 		input   string
@@ -57,6 +59,7 @@ func TestParseLineAdGuardDomain(t *testing.T) {
 	}
 }
 
+// TestParseLineException verifies that users can declare allow-list exceptions in the filterlist parser by asserting that @@ rules are marked as allow rules with the expected pattern.
 func TestParseLineException(t *testing.T) {
 	tests := []struct {
 		input   string
@@ -81,6 +84,7 @@ func TestParseLineException(t *testing.T) {
 	}
 }
 
+// TestParseLineHosts verifies that users can import classic hosts-file deny entries in the filterlist parser by asserting that supported IP-plus-domain lines become canonical rules.
 func TestParseLineHosts(t *testing.T) {
 	tests := []struct {
 		input   string
@@ -107,6 +111,7 @@ func TestParseLineHosts(t *testing.T) {
 	}
 }
 
+// TestParseLineHostsSkipLocalhost verifies that users do not accidentally block loopback aliases in the filterlist parser by asserting that localhost-style hosts entries are skipped.
 func TestParseLineHostsSkipLocalhost(t *testing.T) {
 	lines := []string{
 		"127.0.0.1 localhost",
@@ -121,6 +126,7 @@ func TestParseLineHostsSkipLocalhost(t *testing.T) {
 	}
 }
 
+// TestParseLineUnsupported verifies that users get explicit feedback for rule families that cannot be represented at DNS time in the filterlist parser by asserting that unsupported lines return non-skip errors.
 func TestParseLineUnsupported(t *testing.T) {
 	unsupported := []string{
 		"$$script[tag-content=\"banner\"]",
@@ -140,6 +146,7 @@ func TestParseLineUnsupported(t *testing.T) {
 	}
 }
 
+// TestParseLineBareCosmeticRulesSkipped verifies that browser-only cosmetic rules are ignored instead of misparsed as DNS policy in the filterlist parser by asserting that cosmetic syntax is rejected.
 func TestParseLineBareCosmeticRulesSkipped(t *testing.T) {
 	// Bare cosmetic rules starting with # are silently skipped (irrelevant for DNS).
 	skipped := []string{
@@ -156,6 +163,7 @@ func TestParseLineBareCosmeticRulesSkipped(t *testing.T) {
 	}
 }
 
+// TestParseFileEasyListGermanyLogsUnsupportedNonNetworkRules verifies that users importing real EasyList Germany data get warnings for unsupported non-network syntax in the filterlist package by asserting that such constructs are logged.
 func TestParseFileEasyListGermanyLogsUnsupportedNonNetworkRules(t *testing.T) {
 	path := filepath.Join("..", "..", "testdata", "filterlists", "easylistgermany_example.txt")
 
@@ -183,6 +191,7 @@ func TestParseFileEasyListGermanyLogsUnsupportedNonNetworkRules(t *testing.T) {
 	assertNotContainsPattern(t, rules, "ableitungsrechner.net")
 }
 
+// TestParseFileAdGuardExampleRecognizesSupportedNetworkRules verifies that users importing real AdGuard data keep the supported host-based subset in the filterlist package by asserting that representative network rules are parsed.
 func TestParseFileAdGuardExampleRecognizesSupportedNetworkRules(t *testing.T) {
 	path := filepath.Join("..", "..", "testdata", "filterlists", "Adguard_filter_example.txt")
 
@@ -262,6 +271,7 @@ func assertNotContainsWarning(t *testing.T, warnings []string, want string) {
 	}
 }
 
+// TestParseLineSingleLabel verifies that users are protected from overly broad bare host fragments in the filterlist parser by asserting that single-label rules without anchors are rejected.
 func TestParseLineSingleLabel(t *testing.T) {
 	_, err := ParseLine("ads")
 	if err == nil {
@@ -269,6 +279,7 @@ func TestParseLineSingleLabel(t *testing.T) {
 	}
 }
 
+// TestParseLineModifiersAllowed verifies that users can keep selected no-op modifiers in the filterlist parser by asserting that supported modifiers do not prevent canonical domain extraction.
 func TestParseLineModifiersAllowed(t *testing.T) {
 	allowed := []string{
 		"||example.com^$important",
@@ -297,6 +308,7 @@ func TestParseLineModifiersAllowed(t *testing.T) {
 	}
 }
 
+// TestParseFile verifies that users can parse mixed allow, deny, and hosts-style input from one file in the filterlist package by asserting that valid rules are kept and unsupported lines only generate warnings.
 func TestParseFile(t *testing.T) {
 	dir := t.TempDir()
 	content := `! AdGuard filter list
@@ -308,7 +320,7 @@ func TestParseFile(t *testing.T) {
 invalid##rule
 `
 	path := filepath.Join(dir, "test.txt")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -348,6 +360,7 @@ invalid##rule
 	}
 }
 
+// TestParseFileMissing verifies that users get a direct IO error when a configured list file is absent in the filterlist package by asserting that ParseFile fails for missing paths.
 func TestParseFileMissing(t *testing.T) {
 	_, err := ParseFile("/nonexistent/file.txt", nil)
 	if err == nil {
@@ -355,6 +368,7 @@ func TestParseFileMissing(t *testing.T) {
 	}
 }
 
+// TestParseLineHashCommentsWithMarkers verifies that users can keep hosts-style comments containing filter syntax fragments in the filterlist parser by asserting that leading hash comments are still skipped.
 func TestParseLineHashCommentsWithMarkers(t *testing.T) {
 	// Hosts-style comments that happen to contain ## or other cosmetic markers
 	// must be treated as comments, not as unsupported non-network rules.
@@ -375,6 +389,7 @@ func TestParseLineHashCommentsWithMarkers(t *testing.T) {
 	}
 }
 
+// TestParseLineBadfilterModifier verifies that users can keep badfilter-tagged host rules in the supported subset of the filterlist parser by asserting that the base domain still parses successfully.
 func TestParseLineBadfilterModifier(t *testing.T) {
 	// $badfilter should be accepted as a no-op, not rejected.
 	tests := []struct {
@@ -402,6 +417,7 @@ func TestParseLineBadfilterModifier(t *testing.T) {
 	}
 }
 
+// TestParseLineTrailingDollar verifies that users do not lose otherwise valid rules because of trailing modifier separators in the filterlist parser by asserting that a trailing dollar is tolerated.
 func TestParseLineTrailingDollar(t *testing.T) {
 	// A trailing $ with no modifiers should still parse the domain.
 	rule, err := ParseLine("||example.com^$")
@@ -413,6 +429,7 @@ func TestParseLineTrailingDollar(t *testing.T) {
 	}
 }
 
+// TestParseLineNegatedModifiers verifies that users get an explicit rejection for semantics-changing negated modifiers in the filterlist parser by asserting that such rules return errors.
 func TestParseLineNegatedModifiers(t *testing.T) {
 	// Negated modifiers like $~third-party should be rejected.
 	unsupported := []string{
@@ -428,6 +445,7 @@ func TestParseLineNegatedModifiers(t *testing.T) {
 	}
 }
 
+// TestParseLineMultiDomainHosts verifies that users importing multi-domain hosts lines still get a deterministic primary rule in the filterlist parser by asserting that the first host is selected.
 func TestParseLineMultiDomainHosts(t *testing.T) {
 	// Hosts files can list multiple domains; we take the first one.
 	rule, err := ParseLine("0.0.0.0 first.example.com second.example.com")
@@ -439,6 +457,7 @@ func TestParseLineMultiDomainHosts(t *testing.T) {
 	}
 }
 
+// TestParseLineHostsInlineComment verifies that users can keep inline documentation after hosts entries in the filterlist parser by asserting that the leading domain is parsed correctly.
 func TestParseLineHostsInlineComment(t *testing.T) {
 	// Hosts files often have inline comments after the domain.
 	rule, err := ParseLine("0.0.0.0 tracker.example.com # block tracker")
@@ -450,6 +469,7 @@ func TestParseLineHostsInlineComment(t *testing.T) {
 	}
 }
 
+// TestParseLineIDNUmlautDomains verifies that users can write Unicode AdGuard domains and still match DNS traffic in the filterlist parser by asserting that umlaut domains are converted to punycode.
 func TestParseLineIDNUmlautDomains(t *testing.T) {
 	// Internationalized domain names should be converted to Punycode.
 	tests := []struct {
@@ -487,6 +507,7 @@ func TestParseLineIDNUmlautDomains(t *testing.T) {
 	}
 }
 
+// TestParseLineIDNHostsStyle verifies that users can write Unicode hosts entries and still produce DNS-safe rules in the filterlist parser by asserting that the hostname is converted to ASCII.
 func TestParseLineIDNHostsStyle(t *testing.T) {
 	// Hosts-style entries with Unicode domain names
 	tests := []struct {
@@ -508,6 +529,7 @@ func TestParseLineIDNHostsStyle(t *testing.T) {
 	}
 }
 
+// TestParseLineIDNMatchesDNSQuery verifies that users get the same matching behavior for Unicode filter input and ASCII DNS queries in the end-to-end parser/compiler flow by asserting that a converted IDN rule matches the punycode query form.
 func TestParseLineIDNMatchesDNSQuery(t *testing.T) {
 	// End-to-end: a Unicode filter list entry must produce the same pattern
 	// that a DNS query would contain (Punycode).

@@ -18,12 +18,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tomtonic/coredns-regfilter/internal/util"
 )
 
-// Rule represents a single parsed filter rule with a canonical pattern.
+// Rule represents one canonicalized filter entry ready for compilation.
 type Rule struct {
 	// Pattern is the canonical domain pattern.
 	// It uses a restricted subset: literal chars, '*' for wildcard sequences,
@@ -35,46 +36,61 @@ type Rule struct {
 	IsAllow bool
 }
 
-// Logger is a minimal logging interface to avoid hard dependency on a specific logger.
+// Logger is the minimal warning sink required by the parser.
+//
+// Implementations receive best-effort warnings for unsupported lines or other
+// non-fatal parse issues. The interface keeps the package decoupled from any
+// concrete logging implementation used by callers.
 type Logger interface {
 	Warnf(format string, args ...interface{})
 }
 
 type nopLogger struct{}
 
+// Warnf discards parser warnings when callers do not provide a logger.
 func (nopLogger) Warnf(string, ...interface{}) {}
 
-// ParseFile reads a filter list file and returns all successfully parsed rules.
-// Lines that cannot be parsed are logged via logger and skipped.
-func ParseFile(path string, logger Logger) ([]Rule, error) {
+// ParseFile loads one filter list from path and returns the parsed Rule slice.
+//
+// The path parameter may point to AdGuard, EasyList, or hosts-style files.
+// The logger parameter receives warnings for unsupported or malformed lines and
+// may be nil when the caller wants silent best-effort parsing. ParseFile
+// returns the successfully parsed rules together with any terminal read error;
+// individual line failures are logged and skipped so callers can continue with
+// partially valid upstream lists.
+func ParseFile(path string, logger Logger) (rules []Rule, err error) {
 	if logger == nil {
 		logger = nopLogger{}
 	}
 
-	f, err := os.Open(path)
+	cleanPath := filepath.Clean(path)
+	f, err := os.Open(cleanPath)
 	if err != nil {
-		return nil, fmt.Errorf("filterlist: open %s: %w", path, err)
+		return nil, fmt.Errorf("filterlist: open %s: %w", cleanPath, err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("filterlist: close %s: %w", cleanPath, closeErr)
+		}
+	}()
 
-	var rules []Rule
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
-		rule, err := ParseLine(line)
-		if err != nil {
-			if !errors.Is(err, errSkip) {
-				logger.Warnf("%s:%d: %v", path, lineNum, err)
+		rule, parseErr := ParseLine(line)
+		if parseErr != nil {
+			if !errors.Is(parseErr, errSkip) {
+				logger.Warnf("%s:%d: %v", cleanPath, lineNum, parseErr)
 			}
 			continue
 		}
-		rule.Source = fmt.Sprintf("%s:%d", path, lineNum)
+		rule.Source = fmt.Sprintf("%s:%d", cleanPath, lineNum)
 		rules = append(rules, rule)
 	}
-	if err := scanner.Err(); err != nil {
-		return rules, fmt.Errorf("filterlist: read %s: %w", path, err)
+	if scanErr := scanner.Err(); scanErr != nil {
+		return rules, fmt.Errorf("filterlist: read %s: %w", cleanPath, scanErr)
 	}
 	return rules, nil
 }
@@ -82,9 +98,14 @@ func ParseFile(path string, logger Logger) ([]Rule, error) {
 // errSkip is a sentinel for blank/comment lines that should be silently skipped.
 var errSkip = errors.New("skip")
 
-// ParseLine parses a single filter list line into a Rule.
-// Returns errSkip for blank lines and comments.
-// Returns a descriptive error for unsupported or invalid constructs.
+// ParseLine parses one raw filter line into a canonical Rule.
+//
+// The line parameter may contain AdGuard, EasyList, or hosts-style syntax. The
+// returned Rule contains the normalized domain pattern and allow/deny flag when
+// parsing succeeds. ParseLine returns errSkip for comments and blank lines and
+// returns a descriptive error for unsupported modifiers, path-based rules, or
+// invalid pattern characters. Callers normally use ParseLine inside ParseFile
+// or fuzz and unit tests that exercise individual rule forms.
 func ParseLine(line string) (Rule, error) {
 	line = strings.TrimSpace(line)
 

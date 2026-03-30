@@ -23,6 +23,7 @@ func testdataDir() string {
 	return filepath.Join(filepath.Dir(filename), "testdata", "filterlists")
 }
 
+// TestIntegrationBlacklistCompile verifies that operators can load a real blacklist directory end-to-end through the repository integration path by asserting that compiled deny rules match known blocked domains and ignore safe ones.
 func TestIntegrationBlacklistCompile(t *testing.T) {
 	dir := filepath.Join(testdataDir(), "blacklist")
 	logger := &testLogger{}
@@ -94,6 +95,7 @@ func TestIntegrationBlacklistCompile(t *testing.T) {
 	}
 }
 
+// TestIntegrationWhitelistCompile verifies that operators can load a real whitelist directory end-to-end through the repository integration path by asserting that compiled allow rules match trusted domains and exclude unrelated ones.
 func TestIntegrationWhitelistCompile(t *testing.T) {
 	dir := filepath.Join(testdataDir(), "whitelist")
 	logger := &testLogger{}
@@ -140,6 +142,7 @@ func TestIntegrationWhitelistCompile(t *testing.T) {
 	}
 }
 
+// TestIntegrationWhitelistPrecedence verifies that users keep explicit allow rules even when deny lists are also present by asserting that whitelist matching wins over blacklist handling in the integrated compile flow.
 func TestIntegrationWhitelistPrecedence(t *testing.T) {
 	// Load both lists and verify whitelist takes precedence
 	blDir := filepath.Join(testdataDir(), "blacklist")
@@ -190,6 +193,7 @@ func TestIntegrationWhitelistPrecedence(t *testing.T) {
 	}
 }
 
+// TestRealWorldAdGuardExampleParseAndCompileSubset verifies that users can import a substantial AdGuard sample through the integration pipeline by asserting that supported host rules are parsed and compiled into matching DFA entries.
 func TestRealWorldAdGuardExampleParseAndCompileSubset(t *testing.T) {
 	path := filepath.Join(testdataDir(), "Adguard_filter_example.txt")
 	logger := &testLogger{}
@@ -231,6 +235,7 @@ func TestRealWorldAdGuardExampleParseAndCompileSubset(t *testing.T) {
 	}
 }
 
+// TestRealWorldEasyListGermanyParseAndCompileSubset verifies that users can import a substantial EasyList Germany sample through the integration pipeline by asserting that supported host rules compile while unsupported constructs are surfaced as warnings.
 func TestRealWorldEasyListGermanyParseAndCompileSubset(t *testing.T) {
 	path := filepath.Join(testdataDir(), "easylistgermany_example.txt")
 	logger := &testLogger{}

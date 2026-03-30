@@ -2,6 +2,13 @@ package filterlist
 
 import "testing"
 
+// FuzzParseLine verifies that users cannot crash the parser by feeding it
+// malformed or unexpected filter list lines.
+//
+// This fuzz test covers the filterlist package line parser under adversarial
+// input.
+//
+// It asserts that ParseLine never panics across seeded and generated inputs.
 func FuzzParseLine(f *testing.F) {
 	// Seed corpus
 	seeds := []string{

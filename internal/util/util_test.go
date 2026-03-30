@@ -2,6 +2,13 @@ package util
 
 import "testing"
 
+// TestNormalizeDomain verifies that users get stable lowercase DNS names when
+// input passes through the shared normalization helpers.
+//
+// This test covers the util package domain normalization behavior.
+//
+// It asserts that trailing dots are removed and casing is normalized without
+// altering already canonical names.
 func TestNormalizeDomain(t *testing.T) {
 	tests := []struct {
 		input string
@@ -22,6 +29,13 @@ func TestNormalizeDomain(t *testing.T) {
 	}
 }
 
+// TestIsDNSChar verifies that only DNS-safe characters are accepted by the
+// low-level alphabet helper used by parsing and matching code.
+//
+// This test covers the util package character validation helper.
+//
+// It asserts that lowercase DNS characters pass and obvious invalid runes do
+// not.
 func TestIsDNSChar(t *testing.T) {
 	for _, r := range "abcdefghijklmnopqrstuvwxyz0123456789-." {
 		if !IsDNSChar(r) {
@@ -35,6 +49,13 @@ func TestIsDNSChar(t *testing.T) {
 	}
 }
 
+// TestIsValidDNSName verifies that callers can distinguish supported DNS-style
+// patterns from malformed names before compilation.
+//
+// This test covers the util package whole-name validation helper.
+//
+// It asserts that wildcard-aware DNS names are accepted and malformed input is
+// rejected.
 func TestIsValidDNSName(t *testing.T) {
 	tests := []struct {
 		input string
@@ -55,6 +76,13 @@ func TestIsValidDNSName(t *testing.T) {
 	}
 }
 
+// TestToASCII verifies that internationalized domains are converted into the
+// ASCII form that DNS queries and filter matching actually use.
+//
+// This test covers the util package IDNA conversion helper.
+//
+// It asserts that ASCII domains pass through unchanged and Unicode labels are
+// mapped to their expected punycode representation.
 func TestToASCII(t *testing.T) {
 	tests := []struct {
 		input string
