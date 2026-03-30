@@ -1,16 +1,16 @@
-# Security Policy
+# Security
 
-## Reporting Vulnerabilities
+If you find a significant vulnerability, or evidence of one,
+please report it privately.
 
-If you discover a security vulnerability, please report it responsibly.
+We prefer that you use the
+[GitHub mechanism for privately reporting a vulnerability](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability#privately-reporting-a-security-vulnerability).
+Under the
+[main repository's security tab](../../security),
+click "Report a vulnerability" to open the advisory form.
 
-**Do not** open a public GitHub issue for security vulnerabilities.
-
-Instead, email the maintainers directly with:
-- A description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Any suggested fixes
+We will acknowledge your report within 48 hours and aim to provide a
+fix or mitigation within 7 days for critical issues.
 
 ## Security Design
 
