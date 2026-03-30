@@ -35,6 +35,7 @@ func readBuildInfo() buildInfo {
 	return bi
 }
 
+// String renders build metadata for startup logging and diagnostics.
 func (b buildInfo) String() string {
 	var parts []string
 	parts = append(parts, b.version)
