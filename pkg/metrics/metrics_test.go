@@ -7,6 +7,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
+// TestNewRegistryWith verifies that plugin code gets a fully populated metric bundle for a custom registerer in the metrics package by asserting that every collector field is initialized.
 func TestNewRegistryWith(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	r := NewRegistryWith(reg)
@@ -46,6 +47,24 @@ func TestNewRegistryWith(t *testing.T) {
 	}
 }
 
+// TestNewRegistryWithReusesExistingCollectors verifies that repeated metric setup stays safe for multi-instance use in the metrics package by asserting that duplicate registrations reuse the original collectors instead of creating conflicting ones.
+func TestNewRegistryWithReusesExistingCollectors(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	first := NewRegistryWith(reg)
+	second := NewRegistryWith(reg)
+
+	if first.WhitelistChecks != second.WhitelistChecks {
+		t.Fatal("WhitelistChecks collector was not reused")
+	}
+	if first.BlacklistRules != second.BlacklistRules {
+		t.Fatal("BlacklistRules collector was not reused")
+	}
+	if first.MatchDuration != second.MatchDuration {
+		t.Fatal("MatchDuration collector was not reused")
+	}
+}
+
+// TestLastCompileMetrics verifies that operators can observe the latest successful reload in the metrics package by asserting that timestamp and duration gauges accept and expose written values.
 func TestLastCompileMetrics(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	r := NewRegistryWith(reg)
@@ -70,6 +89,7 @@ func TestLastCompileMetrics(t *testing.T) {
 	}
 }
 
+// TestMatchDurationLabels verifies that operators can break down query latency by result type in the metrics package by asserting that accept, reject, and pass labels each record observations.
 func TestMatchDurationLabels(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	r := NewRegistryWith(reg)
@@ -103,6 +123,7 @@ func TestMatchDurationLabels(t *testing.T) {
 	}
 }
 
+// TestCompileDurationHistogram verifies that operators can inspect compile latency distribution in the metrics package by asserting that histogram observations are gathered with the expected sample count.
 func TestCompileDurationHistogram(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	r := NewRegistryWith(reg)

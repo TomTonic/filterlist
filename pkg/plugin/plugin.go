@@ -22,7 +22,12 @@ import (
 
 var log = clog.NewWithPlugin("regfilter")
 
-// ActionConfig controls how blocked queries are responded to.
+// ActionConfig describes how regfilter answers blocked DNS questions.
+//
+// Mode selects the response policy and must be one of nxdomain, nullip, or
+// refuse. NullIPv4 and NullIPv6 provide sinkhole answers for A and AAAA
+// queries when Mode is nullip, while TTL controls the cache lifetime of those
+// synthetic answers.
 type ActionConfig struct {
 	Mode     string // "nxdomain", "nullip", "refuse"
 	NullIPv4 net.IP
@@ -30,7 +35,12 @@ type ActionConfig struct {
 	TTL      uint32
 }
 
-// Config holds all configuration for the regfilter plugin.
+// Config holds the complete regfilter runtime configuration.
+//
+// WhitelistDir and BlacklistDir point at directories containing supported
+// filter list files. Action configures the DNS response for blocked names,
+// while Debounce, MaxStates, and CompileTimeout bound filesystem churn and DFA
+// compilation cost. Setup callers typically obtain Config via parseConfig.
 type Config struct {
 	WhitelistDir   string
 	BlacklistDir   string
@@ -41,6 +51,10 @@ type Config struct {
 }
 
 // RegFilter is the CoreDNS plugin handler.
+//
+// Each RegFilter instance owns the active whitelist and blacklist DFAs for one
+// CoreDNS server block and swaps them atomically when reloads succeed. The
+// handler is created during setup and then used on the DNS request path.
 type RegFilter struct {
 	Next    plugin.Handler
 	Config  Config
@@ -52,20 +66,35 @@ type RegFilter struct {
 	stopWatcher func() error
 }
 
-// Name implements the plugin.Handler interface.
+// Name reports the CoreDNS plugin name used for error wrapping and chaining.
+//
+// It returns the static identifier regfilter so CoreDNS can attribute handler
+// failures and plugin ordering to this module.
 func (rf *RegFilter) Name() string { return "regfilter" }
 
-// SetWhitelist atomically stores a new whitelist DFA.
+// SetWhitelist atomically installs d as the active whitelist automaton.
+//
+// The d parameter may be nil to clear the whitelist after a successful reload
+// that produced no allow rules. Callers normally use this from watcher update
+// callbacks rather than directly from the DNS hot path.
 func (rf *RegFilter) SetWhitelist(d *automaton.DFA) {
 	rf.whitelist.Store(d)
 }
 
-// SetBlacklist atomically stores a new blacklist DFA.
+// SetBlacklist atomically installs d as the active blacklist automaton.
+//
+// The d parameter may be nil to clear the blacklist after a successful reload
+// that produced no deny rules. This keeps readers lock-free while reload logic
+// swaps compiled automatons in the background.
 func (rf *RegFilter) SetBlacklist(d *automaton.DFA) {
 	rf.blacklist.Store(d)
 }
 
-// GetWhitelist returns the current whitelist DFA (may be nil).
+// GetWhitelist returns the current whitelist automaton.
+//
+// The return value is nil when no whitelist has been compiled yet or when the
+// last successful reload yielded no allow rules. ServeDNS uses this on every
+// query before consulting the blacklist.
 func (rf *RegFilter) GetWhitelist() *automaton.DFA {
 	v := rf.whitelist.Load()
 	if v == nil {
@@ -79,7 +108,11 @@ func (rf *RegFilter) GetWhitelist() *automaton.DFA {
 	return dfa
 }
 
-// GetBlacklist returns the current blacklist DFA (may be nil).
+// GetBlacklist returns the current blacklist automaton.
+//
+// The return value is nil when no blacklist has been compiled yet or when the
+// currently loaded deny set is empty. Callers use the returned DFA as a
+// read-only structure and must not mutate it.
 func (rf *RegFilter) GetBlacklist() *automaton.DFA {
 	v := rf.blacklist.Load()
 	if v == nil {
@@ -93,7 +126,13 @@ func (rf *RegFilter) GetBlacklist() *automaton.DFA {
 	return dfa
 }
 
-// ServeDNS implements the plugin.Handler interface.
+// ServeDNS evaluates r against the active DFAs and writes the response to w.
+//
+// The ctx, w, and r parameters are the standard CoreDNS request context,
+// response writer, and DNS message for the current query. ServeDNS returns the
+// DNS rcode written to the client together with any write error; whitelist
+// matches are forwarded, blacklist matches are blocked according to Action, and
+// unmatched queries are delegated to the next plugin.
 func (rf *RegFilter) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	if len(r.Question) == 0 {
 		return plugin.NextOrFailure(rf.Name(), rf.Next, ctx, w, r)
@@ -199,7 +238,12 @@ func normalizeName(name string) string {
 	return name
 }
 
-// StartWatcher initializes the filesystem watcher for hot-reloading DFAs.
+// StartWatcher starts filesystem monitoring and the initial DFA load.
+//
+// It uses the directories and limits from rf.Config, publishes metrics for
+// successful compiles and failed load or compile runs, and stores the stop
+// callback for later shutdown. StartWatcher returns an error only when the
+// watcher infrastructure itself cannot be started.
 func (rf *RegFilter) StartWatcher() error {
 	stop, err := watcher.Start(&watcher.Config{
 		WhitelistDir:   rf.Config.WhitelistDir,
@@ -215,23 +259,27 @@ func (rf *RegFilter) StartWatcher() error {
 				rf.metrics.LastCompileDurationSeconds.Set(duration.Seconds())
 			}
 		},
-		OnUpdate: func(wl *automaton.DFA, bl *automaton.DFA) {
-			rf.SetWhitelist(wl)
-			rf.SetBlacklist(bl)
+		OnError: func(_ string, _ error) {
 			if rf.metrics != nil {
-				if wl != nil {
-					rf.metrics.WhitelistRules.Set(float64(wl.StateCount()))
-				} else {
-					rf.metrics.WhitelistRules.Set(0)
-				}
-				if bl != nil {
-					rf.metrics.BlacklistRules.Set(float64(bl.StateCount()))
-				} else {
-					rf.metrics.BlacklistRules.Set(0)
-				}
+				rf.metrics.CompileErrors.Inc()
 			}
-			log.Infof("DFAs updated: whitelist=%v blacklist=%v",
-				wl != nil, bl != nil)
+		},
+		OnUpdate: func(wl watcher.Snapshot, bl watcher.Snapshot) {
+			rf.SetWhitelist(wl.DFA)
+			rf.SetBlacklist(bl.DFA)
+			if rf.metrics != nil {
+				rf.metrics.WhitelistRules.Set(float64(wl.RuleCount))
+				rf.metrics.BlacklistRules.Set(float64(bl.RuleCount))
+			}
+			log.Infof(
+				"DFAs updated: whitelist_active=%v whitelist_rules=%d whitelist_states=%d blacklist_active=%v blacklist_rules=%d blacklist_states=%d",
+				wl.DFA != nil,
+				wl.RuleCount,
+				wl.StateCount,
+				bl.DFA != nil,
+				bl.RuleCount,
+				bl.StateCount,
+			)
 		},
 	})
 	if err != nil {
@@ -241,7 +289,10 @@ func (rf *RegFilter) StartWatcher() error {
 	return nil
 }
 
-// Stop cleanly shuts down the watcher.
+// Stop stops the background watcher and releases associated resources.
+//
+// It returns any shutdown error reported by the watcher. Stop is typically
+// invoked from the CoreDNS OnShutdown hook that is registered during setup.
 func (rf *RegFilter) Stop() error {
 	if rf.stopWatcher != nil {
 		return rf.stopWatcher()
@@ -252,6 +303,11 @@ func (rf *RegFilter) Stop() error {
 // pluginLogger adapts CoreDNS log to watcher.Logger.
 type pluginLogger struct{}
 
-func (pluginLogger) Warnf(format string, args ...interface{})  { log.Warningf(format, args...) }
-func (pluginLogger) Infof(format string, args ...interface{})  { log.Infof(format, args...) }
+// Warnf forwards watcher warnings to the CoreDNS regfilter logger.
+func (pluginLogger) Warnf(format string, args ...interface{}) { log.Warningf(format, args...) }
+
+// Infof forwards watcher informational messages to the CoreDNS regfilter logger.
+func (pluginLogger) Infof(format string, args ...interface{}) { log.Infof(format, args...) }
+
+// Errorf forwards watcher errors to the CoreDNS regfilter logger.
 func (pluginLogger) Errorf(format string, args ...interface{}) { log.Errorf(format, args...) }

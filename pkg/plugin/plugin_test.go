@@ -3,8 +3,12 @@ package plugin
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/coredns/caddy"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
@@ -50,7 +54,9 @@ func (m *mockNextHandler) ServeDNS(_ context.Context, w dns.ResponseWriter, r *d
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	msg.Rcode = dns.RcodeSuccess
-	w.WriteMsg(msg)
+	if err := w.WriteMsg(msg); err != nil {
+		return dns.RcodeServerFailure, err
+	}
 	return dns.RcodeSuccess, nil
 }
 
@@ -75,6 +81,7 @@ func makeQuery(name string, qtype uint16) *dns.Msg {
 	return m
 }
 
+// TestServeDNSBlacklistNXDOMAIN verifies that blocked users receive NXDOMAIN replies in the CoreDNS plugin path by asserting that a blacklist hit returns dns.RcodeNameError and does not call the next handler.
 func TestServeDNSBlacklistNXDOMAIN(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
@@ -100,6 +107,7 @@ func TestServeDNSBlacklistNXDOMAIN(t *testing.T) {
 	}
 }
 
+// TestServeDNSBlacklistNullIP verifies that blocked users receive sinkhole answers in the CoreDNS plugin path by asserting that blacklist hits produce the configured A and AAAA null responses.
 func TestServeDNSBlacklistNullIP(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
@@ -152,6 +160,7 @@ func TestServeDNSBlacklistNullIP(t *testing.T) {
 	}
 }
 
+// TestServeDNSBlacklistRefuse verifies that blocked users can receive REFUSED responses in the CoreDNS plugin path by asserting that a blacklist hit returns dns.RcodeRefused.
 func TestServeDNSBlacklistRefuse(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
@@ -173,6 +182,7 @@ func TestServeDNSBlacklistRefuse(t *testing.T) {
 	}
 }
 
+// TestServeDNSWhitelistOverridesBlacklist verifies that explicitly allowed users are not blocked in the CoreDNS plugin path by asserting that whitelist matches bypass blacklist handling.
 func TestServeDNSWhitelistOverridesBlacklist(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
@@ -196,6 +206,7 @@ func TestServeDNSWhitelistOverridesBlacklist(t *testing.T) {
 	}
 }
 
+// TestServeDNSNoMatch verifies that ordinary users keep normal DNS resolution when no rule applies in the CoreDNS plugin path by asserting that unmatched queries reach the next handler.
 func TestServeDNSNoMatch(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
@@ -217,6 +228,7 @@ func TestServeDNSNoMatch(t *testing.T) {
 	}
 }
 
+// TestServeDNSCaseInsensitive verifies that users are matched regardless of query case in the CoreDNS plugin path by asserting that mixed-case names still hit lowercase blacklist rules.
 func TestServeDNSCaseInsensitive(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
@@ -238,6 +250,7 @@ func TestServeDNSCaseInsensitive(t *testing.T) {
 	}
 }
 
+// TestServeDNSEmptyQuestion verifies that malformed or empty requests do not crash the CoreDNS plugin path by asserting that messages without questions are delegated onward.
 func TestServeDNSEmptyQuestion(t *testing.T) {
 	next := &mockNextHandler{}
 	rf := &RegFilter{
@@ -260,6 +273,7 @@ func TestServeDNSEmptyQuestion(t *testing.T) {
 	}
 }
 
+// TestNormalizeName verifies that operators get canonical query names inside the plugin package by asserting that normalization lowercases names and trims trailing dots.
 func TestNormalizeName(t *testing.T) {
 	tests := []struct {
 		input, want string
@@ -313,6 +327,18 @@ func getCounterValue(t *testing.T, counter prometheus.Counter) float64 {
 	return metric.GetCounter().GetValue()
 }
 
+func getGaugeValue(t *testing.T, gauge prometheus.Gauge) float64 {
+	t.Helper()
+
+	var metric dto.Metric
+	if err := gauge.Write(&metric); err != nil {
+		t.Fatal(err)
+	}
+
+	return metric.GetGauge().GetValue()
+}
+
+// TestServeDNSMatchDurationAccept verifies that operators can observe accepted-query latency in the CoreDNS plugin metrics path by asserting that whitelist hits record an accept duration sample.
 func TestServeDNSMatchDurationAccept(t *testing.T) {
 	m, promReg := newMetrics(t)
 	next := &mockNextHandler{}
@@ -335,6 +361,7 @@ func TestServeDNSMatchDurationAccept(t *testing.T) {
 	}
 }
 
+// TestServeDNSMatchDurationReject verifies that operators can observe rejected-query latency in the CoreDNS plugin metrics path by asserting that blacklist hits record a reject duration sample.
 func TestServeDNSMatchDurationReject(t *testing.T) {
 	m, promReg := newMetrics(t)
 	next := &mockNextHandler{}
@@ -357,6 +384,7 @@ func TestServeDNSMatchDurationReject(t *testing.T) {
 	}
 }
 
+// TestServeDNSMatchDurationPass verifies that operators can observe pass-through latency in the CoreDNS plugin metrics path by asserting that unmatched queries record a pass duration sample.
 func TestServeDNSMatchDurationPass(t *testing.T) {
 	m, promReg := newMetrics(t)
 	next := &mockNextHandler{}
@@ -379,6 +407,7 @@ func TestServeDNSMatchDurationPass(t *testing.T) {
 	}
 }
 
+// TestServeDNSWhitelistHitCounter verifies that operators can count successful allow-list decisions in the CoreDNS plugin metrics path by asserting that whitelist checks and hits are both incremented on an allow match.
 func TestServeDNSWhitelistHitCounter(t *testing.T) {
 	m, _ := newMetrics(t)
 	next := &mockNextHandler{}
@@ -401,6 +430,7 @@ func TestServeDNSWhitelistHitCounter(t *testing.T) {
 	}
 }
 
+// TestServeDNSBlacklistCheckAndHitCounters verifies that operators can count deny-list decisions in the CoreDNS plugin metrics path by asserting that blacklist checks and hits are incremented after a non-whitelisted block.
 func TestServeDNSBlacklistCheckAndHitCounters(t *testing.T) {
 	m, _ := newMetrics(t)
 	next := &mockNextHandler{}
@@ -427,6 +457,7 @@ func TestServeDNSBlacklistCheckAndHitCounters(t *testing.T) {
 	}
 }
 
+// TestServeDNSWhitelistHitSkipsBlacklistCheck verifies that operators can trust whitelist precedence in the CoreDNS plugin metrics path by asserting that blacklist checks stay at zero when the whitelist already matched.
 func TestServeDNSWhitelistHitSkipsBlacklistCheck(t *testing.T) {
 	m, _ := newMetrics(t)
 	next := &mockNextHandler{}
@@ -448,4 +479,109 @@ func TestServeDNSWhitelistHitSkipsBlacklistCheck(t *testing.T) {
 	if got := getCounterValue(t, m.BlacklistChecks); got != 0 {
 		t.Errorf("BlacklistChecks = %v, want 0", got)
 	}
+}
+
+// TestStartWatcherLoadsInitialSnapshots verifies that operators get an active blacklist and populated metrics as soon as the plugin watcher starts by asserting that the initial compile loads rules, updates gauges, and can be stopped cleanly.
+func TestStartWatcherLoadsInitialSnapshots(t *testing.T) {
+	blDir := t.TempDir()
+	path := filepath.Join(blDir, "deny.txt")
+	if err := os.WriteFile(path, []byte("||ads.example.com^\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	m, _ := newMetrics(t)
+	rf := &RegFilter{
+		Config: Config{
+			BlacklistDir:   blDir,
+			Debounce:       50 * time.Millisecond,
+			MaxStates:      1000,
+			CompileTimeout: time.Second,
+		},
+		metrics: m,
+	}
+
+	if err := rf.StartWatcher(); err != nil {
+		t.Fatalf("StartWatcher error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := rf.Stop(); err != nil {
+			t.Errorf("Stop error: %v", err)
+		}
+	})
+
+	bl := rf.GetBlacklist()
+	if bl == nil {
+		t.Fatal("expected blacklist DFA after StartWatcher")
+	}
+	matched, _ := bl.Match("ads.example.com")
+	if !matched {
+		t.Fatal("expected blacklist DFA to match seeded rule")
+	}
+	if got := getGaugeValue(t, m.BlacklistRules); got != 1 {
+		t.Fatalf("BlacklistRules = %v, want 1", got)
+	}
+	if got := getGaugeValue(t, m.LastCompileDurationSeconds); got <= 0 {
+		t.Fatalf("LastCompileDurationSeconds = %v, want > 0", got)
+	}
+}
+
+// TestStartWatcherInitialFailureIncrementsCompileErrors verifies that operators can keep the plugin active while still observing startup load failures in the plugin package by asserting that StartWatcher succeeds, leaves no DFA loaded, and increments the compile error counter for unreadable directories.
+func TestStartWatcherInitialFailureIncrementsCompileErrors(t *testing.T) {
+	m, _ := newMetrics(t)
+	rf := &RegFilter{
+		Config: Config{
+			BlacklistDir:   "/nonexistent/blacklist",
+			Debounce:       50 * time.Millisecond,
+			MaxStates:      1000,
+			CompileTimeout: time.Second,
+		},
+		metrics: m,
+	}
+
+	if err := rf.StartWatcher(); err != nil {
+		t.Fatalf("StartWatcher error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := rf.Stop(); err != nil {
+			t.Errorf("Stop error: %v", err)
+		}
+	})
+	if got := getCounterValue(t, m.CompileErrors); got != 1 {
+		t.Fatalf("CompileErrors = %v, want 1", got)
+	}
+	if rf.GetBlacklist() != nil {
+		t.Fatal("expected no blacklist DFA after failed initial load")
+	}
+}
+
+// TestStopWithoutWatcherReturnsNil verifies that callers can always invoke plugin shutdown code safely in the plugin package by asserting that Stop succeeds even before StartWatcher was called.
+func TestStopWithoutWatcherReturnsNil(t *testing.T) {
+	rf := &RegFilter{}
+	if err := rf.Stop(); err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}
+
+// TestSetupReturnsErrorForInvalidConfig verifies that operators get a setup error before the plugin enters service when the Corefile is invalid by asserting that setup rejects a regfilter block without directories.
+func TestSetupReturnsErrorForInvalidConfig(t *testing.T) {
+	c := caddy.NewTestController("dns", `regfilter { action nxdomain }`)
+	if err := setup(c); err == nil {
+		t.Fatal("expected setup error for invalid configuration")
+	}
+}
+
+// TestSetupAllowsWatcherFailure verifies that operators can keep CoreDNS starting even when the initial filter directory is unreadable by asserting that setup remains successful.
+func TestSetupAllowsWatcherFailure(t *testing.T) {
+	c := caddy.NewTestController("dns", `regfilter { blacklist_dir /nonexistent/blacklist }`)
+	if err := setup(c); err != nil {
+		t.Fatalf("expected setup to stay fail-open, got error: %v", err)
+	}
+}
+
+// TestPluginLoggerForwarders verifies that watcher log callbacks can flow through the plugin logger adapter without panicking in the plugin package by asserting that each severity method is callable.
+func TestPluginLoggerForwarders(_ *testing.T) {
+	logger := pluginLogger{}
+	logger.Warnf("warn %s", "value")
+	logger.Infof("info %s", "value")
+	logger.Errorf("error %s", "value")
 }

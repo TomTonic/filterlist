@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,8 +27,13 @@ type Logger interface {
 
 type nopLogger struct{}
 
-func (nopLogger) Warnf(string, ...interface{})  {}
-func (nopLogger) Infof(string, ...interface{})  {}
+// Warnf discards watcher warnings when no logger is configured.
+func (nopLogger) Warnf(string, ...interface{}) {}
+
+// Infof discards watcher informational messages when no logger is configured.
+func (nopLogger) Infof(string, ...interface{}) {}
+
+// Errorf discards watcher errors when no logger is configured.
 func (nopLogger) Errorf(string, ...interface{}) {}
 
 // Config configures the watcher.
@@ -35,14 +42,47 @@ type Config struct {
 	BlacklistDir   string
 	Debounce       time.Duration
 	Logger         Logger
-	OnUpdate       func(whitelist *automaton.DFA, blacklist *automaton.DFA)
+	OnUpdate       func(whitelist Snapshot, blacklist Snapshot)
 	OnCompile      func(label string, duration time.Duration)
+	OnError        func(label string, err error)
 	MaxCompileTime time.Duration
 	MaxStates      int
 }
 
+// Snapshot describes one compiled filter set state.
+type Snapshot struct {
+	DFA        *automaton.DFA
+	RuleCount  int
+	StateCount int
+}
+
+// compileStatus classifies the outcome of one load-and-compile attempt.
+type compileStatus string
+
+const (
+	compileStatusDisabled     compileStatus = "disabled"
+	compileStatusEmpty        compileStatus = "empty"
+	compileStatusReady        compileStatus = "ready"
+	compileStatusLoadError    compileStatus = "load_error"
+	compileStatusCompileError compileStatus = "compile_error"
+)
+
+type compileReport struct {
+	Label      string
+	Dir        string
+	Status     compileStatus
+	RuleCount  int
+	StateCount int
+	Duration   time.Duration
+	Err        error
+}
+
+// defaults applies operational fallback values when callers leave fields empty.
 func (c *Config) defaults() {
 	if c.Debounce == 0 {
+		c.Debounce = 300 * time.Millisecond
+	}
+	if c.Debounce < 0 {
 		c.Debounce = 300 * time.Millisecond
 	}
 	if c.Logger == nil {
@@ -57,7 +97,17 @@ func (c *Config) defaults() {
 }
 
 // Start begins watching the configured directories and returns a stop function.
-// It performs an initial compilation before returning.
+//
+// The cfg parameter supplies watched directories, compile limits, and optional
+// callbacks for update and error reporting. Start performs the first load and
+// compilation before returning, but it keeps the watcher alive when directories
+// are unreadable, empty, or contain only unsupported rules. Those outcomes are
+// logged in detail and reported through OnError so callers can continue with
+// the last known good snapshot, or with no DFA loaded yet on startup.
+//
+// On success the returned stop function closes the underlying fsnotify watcher
+// and waits for background goroutines to exit. Start is typically used by the
+// CoreDNS plugin setup path before the handler is added to the serving chain.
 func Start(cfg *Config) (stop func() error, err error) {
 	if cfg == nil {
 		return nil, errors.New("watcher: nil config")
@@ -74,12 +124,18 @@ func Start(cfg *Config) (stop func() error, err error) {
 	}
 
 	// Initial compile
-	wlDFA := w.compileDir(cfg.WhitelistDir, "whitelist")
-	blDFA := w.compileDir(cfg.BlacklistDir, "blacklist")
-	w.lastWLDFA = wlDFA
-	w.lastBLDFA = blDFA
+	wlSnapshot, wlReport := w.compileDir(cfg.WhitelistDir, "whitelist")
+	if wlReport.Err != nil && cfg.OnError != nil {
+		cfg.OnError("whitelist", wlReport.Err)
+	}
+	blSnapshot, blReport := w.compileDir(cfg.BlacklistDir, "blacklist")
+	if blReport.Err != nil && cfg.OnError != nil {
+		cfg.OnError("blacklist", blReport.Err)
+	}
+	w.lastWL = wlSnapshot
+	w.lastBL = blSnapshot
 	if cfg.OnUpdate != nil {
-		cfg.OnUpdate(wlDFA, blDFA)
+		cfg.OnUpdate(wlSnapshot, blSnapshot)
 	}
 
 	// Set up fsnotify
@@ -113,9 +169,9 @@ type dirWatcher struct {
 	fsw    *fsnotify.Watcher
 	wg     sync.WaitGroup
 
-	mu        sync.Mutex // protects compileDir calls
-	lastWLDFA *automaton.DFA
-	lastBLDFA *automaton.DFA
+	mu     sync.Mutex // protects compileDir calls
+	lastWL Snapshot
+	lastBL Snapshot
 }
 
 func (w *dirWatcher) stop() error {
@@ -199,76 +255,138 @@ func (w *dirWatcher) rebuild(which string) {
 
 	switch which {
 	case "whitelist":
-		dfa := w.compileDir(w.cfg.WhitelistDir, "whitelist")
-		if dfa != nil {
-			w.lastWLDFA = dfa
-		} else if w.lastWLDFA != nil {
+		snapshot, report := w.compileDir(w.cfg.WhitelistDir, "whitelist")
+		if report.Err != nil {
 			w.cfg.Logger.Warnf("watcher: whitelist compile failed, keeping previous DFA")
-			dfa = w.lastWLDFA
+			if w.cfg.OnError != nil {
+				w.cfg.OnError("whitelist", report.Err)
+			}
+			snapshot = w.lastWL
+		} else {
+			w.lastWL = snapshot
 		}
 		if w.cfg.OnUpdate != nil {
-			w.cfg.OnUpdate(dfa, w.lastBLDFA)
+			w.cfg.OnUpdate(snapshot, w.lastBL)
 		}
 
 	case "blacklist":
-		dfa := w.compileDir(w.cfg.BlacklistDir, "blacklist")
-		if dfa != nil {
-			w.lastBLDFA = dfa
-		} else if w.lastBLDFA != nil {
+		snapshot, report := w.compileDir(w.cfg.BlacklistDir, "blacklist")
+		if report.Err != nil {
 			w.cfg.Logger.Warnf("watcher: blacklist compile failed, keeping previous DFA")
-			dfa = w.lastBLDFA
+			if w.cfg.OnError != nil {
+				w.cfg.OnError("blacklist", report.Err)
+			}
+			snapshot = w.lastBL
+		} else {
+			w.lastBL = snapshot
 		}
 		if w.cfg.OnUpdate != nil {
-			w.cfg.OnUpdate(w.lastWLDFA, dfa)
+			w.cfg.OnUpdate(w.lastWL, snapshot)
 		}
 	}
 }
 
-func (w *dirWatcher) compileDir(dir, label string) *automaton.DFA {
+// compileDir loads one configured directory and turns it into a snapshot plus report.
+func (w *dirWatcher) compileDir(dir, label string) (Snapshot, compileReport) {
+	report := compileReport{
+		Label:  label,
+		Dir:    dir,
+		Status: compileStatusDisabled,
+	}
+	started := time.Now()
+
 	if dir == "" {
-		return nil
+		report.Duration = time.Since(started)
+		w.logCompileReport(&report)
+		return Snapshot{}, report
 	}
 
 	logger := filterlistLogger{w.cfg.Logger}
 	rules, err := blockloader.LoadDirectory(dir, &logger)
 	if err != nil {
-		w.cfg.Logger.Errorf("watcher: load %s dir %s: %v", label, dir, err)
-		return nil
+		report.Status = compileStatusLoadError
+		report.Duration = time.Since(started)
+		report.Err = fmt.Errorf("watcher: load %s dir %s: %w", label, dir, err)
+		w.logCompileReport(&report)
+		return Snapshot{}, report
 	}
 
 	if len(rules) == 0 {
-		w.cfg.Logger.Infof("watcher: %s has no rules", label)
-		return nil
+		report.Status = compileStatusEmpty
+		report.Duration = time.Since(started)
+		w.logCompileReport(&report)
+		return Snapshot{}, report
 	}
 
-	start := time.Now()
+	report.RuleCount = len(rules)
+	compileStarted := time.Now()
 	dfa, err := automaton.CompileRules(rules, automaton.CompileOptions{
 		MaxStates:      w.cfg.MaxStates,
 		CompileTimeout: w.cfg.MaxCompileTime,
 	})
-	elapsed := time.Since(start)
+	compileElapsed := time.Since(compileStarted)
+	report.Duration = time.Since(started)
 
 	if err != nil {
-		w.cfg.Logger.Errorf("watcher: compile %s failed after %v: %v", label, elapsed, err)
-		return nil
+		report.Status = compileStatusCompileError
+		report.Err = fmt.Errorf("watcher: compile %s failed after %v: %w", label, compileElapsed, err)
+		w.logCompileReport(&report)
+		return Snapshot{}, report
 	}
 
-	w.cfg.Logger.Infof("watcher: compiled %s DFA: %d rules, %d states in %v",
-		label, len(rules), dfa.StateCount(), elapsed)
+	report.Status = compileStatusReady
+	report.StateCount = dfa.StateCount()
+	w.logCompileReport(&report)
 
 	if w.cfg.OnCompile != nil {
-		w.cfg.OnCompile(label, elapsed)
+		w.cfg.OnCompile(label, compileElapsed)
 	}
 
-	return dfa
+	return Snapshot{DFA: dfa, RuleCount: len(rules), StateCount: dfa.StateCount()}, report
 }
 
-// isUnder checks if path is under dir (simple prefix check).
+// logCompileReport emits one structured summary line for every compile attempt.
+func (w *dirWatcher) logCompileReport(report *compileReport) {
+	msg := "watcher: compile summary label=%s dir=%s status=%s rules=%d states=%d duration=%v"
+	if report.Err != nil {
+		w.cfg.Logger.Errorf(
+			msg+" error=%v",
+			report.Label,
+			report.Dir,
+			report.Status,
+			report.RuleCount,
+			report.StateCount,
+			report.Duration,
+			report.Err,
+		)
+		return
+	}
+
+	w.cfg.Logger.Infof(
+		msg,
+		report.Label,
+		report.Dir,
+		report.Status,
+		report.RuleCount,
+		report.StateCount,
+		report.Duration,
+	)
+}
+
+// isUnder checks whether path is dir itself or a descendant of dir.
 func isUnder(path, dir string) bool {
-	if dir == "" {
+	if path == "" || dir == "" {
 		return false
 	}
-	return len(path) >= len(dir) && path[:len(dir)] == dir
+
+	cleanPath := filepath.Clean(path)
+	cleanDir := filepath.Clean(dir)
+	rel, err := filepath.Rel(cleanDir, cleanPath)
+	if err != nil {
+		return false
+	}
+
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // filterlistLogger adapts our Logger to filterlist.Logger.
@@ -276,6 +394,7 @@ type filterlistLogger struct {
 	l Logger
 }
 
+// Warnf forwards filterlist warnings into the watcher logger interface.
 func (f *filterlistLogger) Warnf(format string, args ...interface{}) {
 	f.l.Warnf(format, args...)
 }

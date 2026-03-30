@@ -151,7 +151,9 @@ Those tests assert that:
 
 ### Configuration Notes
 
-- At least one of `whitelist_dir` or `blacklist_dir` should point to a directory with readable filter files.
+- At least one of `whitelist_dir` or `blacklist_dir` must be configured.
+- Startup stays fail-open if configured directories are unreadable, empty, or contain only unsupported rules.
+- Every initial load and hot-reload writes a detailed compile summary to the CoreDNS log, including directory, outcome, rule count, state count, duration, and any error.
 - `action nxdomain` returns NXDOMAIN for blocked queries.
 - `action refuse` returns REFUSED for blocked queries.
 - `action nullip` returns synthetic `A` and `AAAA` answers for address lookups, and falls back to NXDOMAIN for other query types.
@@ -179,9 +181,9 @@ All metrics are exported with the `coredns_regfilter_` prefix through the CoreDN
 | `coredns_regfilter_blacklist_checks_total` | Counter | Number of queries evaluated against the blacklist DFA |
 | `coredns_regfilter_whitelist_hits_total` | Counter | Number of queries accepted because the whitelist DFA matched |
 | `coredns_regfilter_blacklist_hits_total` | Counter | Number of queries blocked because the blacklist DFA matched |
-| `coredns_regfilter_compile_errors_total` | Counter | Counter reserved for DFA compile failures |
-| `coredns_regfilter_whitelist_rules` | Gauge | Current size of the compiled whitelist automaton, updated on reload |
-| `coredns_regfilter_blacklist_rules` | Gauge | Current size of the compiled blacklist automaton, updated on reload |
+| `coredns_regfilter_compile_errors_total` | Counter | Number of failed filter load or compile runs |
+| `coredns_regfilter_whitelist_rules` | Gauge | Current number of supported whitelist rules loaded into the active snapshot |
+| `coredns_regfilter_blacklist_rules` | Gauge | Current number of supported blacklist rules loaded into the active snapshot |
 | `coredns_regfilter_last_compile_timestamp_seconds` | Gauge | Unix timestamp of the most recent successful compilation |
 | `coredns_regfilter_last_compile_duration_seconds` | Gauge | Duration in seconds of the most recent successful compilation |
 
@@ -209,7 +211,7 @@ The `coredns_regfilter_match_duration_seconds` summary uses a `result` label wit
 - Use `compile_duration_seconds` and `last_compile_duration_seconds` to spot slow reloads.
 - Use `last_compile_timestamp_seconds` to verify that file changes are being picked up.
 - Use `match_duration_seconds` to watch lookup overhead on the request path.
-- The `whitelist_rules` and `blacklist_rules` gauges reflect the currently compiled automata after reload, which is more useful operationally than just counting raw source lines.
+- The `whitelist_rules` and `blacklist_rules` gauges reflect the currently active parsed rule counts after reload, which is more useful operationally than just counting raw source lines.
 
 Typical Prometheus ratios look like this:
 
