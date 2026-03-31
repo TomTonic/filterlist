@@ -227,12 +227,12 @@ func cmdMatch(args []string, stdout, stderr io.Writer) int {
 // writeRuleDetail appends rule source and pattern info for the first matching
 // rule to the output line. It shows the basename:line and the original pattern
 // so operators can trace which filter file line caused the decision.
-func writeRuleDetail(w io.Writer, ruleIDs []int, sources, patterns []string) {
+func writeRuleDetail(w io.Writer, ruleIDs []uint32, sources, patterns []string) {
 	if len(ruleIDs) == 0 || len(sources) == 0 {
 		return
 	}
-	id := ruleIDs[0]
-	if id < 0 || id >= len(sources) {
+	id := int(ruleIDs[0])
+	if id >= len(sources) {
 		return
 	}
 	src := shortSource(sources[id])

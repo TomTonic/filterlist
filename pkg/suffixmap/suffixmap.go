@@ -19,7 +19,7 @@ import "strings"
 //
 // The zero value is not usable; create instances via [New].
 type SuffixMap struct {
-	m map[string][]int
+	m map[string][]uint32
 }
 
 // New creates a SuffixMap from the given entries.
@@ -28,9 +28,9 @@ type SuffixMap struct {
 // to its rule IDs. The entries map is owned by the SuffixMap after the call;
 // callers must not modify it afterwards. Passing a nil or empty map creates
 // a valid but empty SuffixMap that never matches.
-func New(entries map[string][]int) *SuffixMap {
+func New(entries map[string][]uint32) *SuffixMap {
 	if entries == nil {
-		entries = map[string][]int{}
+		entries = map[string][]uint32{}
 	}
 	return &SuffixMap{m: entries}
 }
@@ -60,7 +60,7 @@ func (s *SuffixMap) Len() int {
 //
 // The input parameter should be a lowercase DNS name. Match returns false
 // and nil when no pattern matches.
-func (s *SuffixMap) Match(input string) (matched bool, ruleIDs []int) {
+func (s *SuffixMap) Match(input string) (matched bool, ruleIDs []uint32) {
 	if s == nil || len(s.m) == 0 {
 		return false, nil
 	}

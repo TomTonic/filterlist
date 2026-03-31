@@ -97,7 +97,7 @@ func TestBuildPatternNFALiteral(t *testing.T) {
 	}
 }
 
-// TestBuildPatternNFAWildcard verifies that wildcard patterns compile into the expected loop structure in the automaton package by asserting that the wildcard state self-loops over the full DNS alphabet.
+// TestBuildPatternNFAWildcard verifies that wildcard patterns compile into an efficient DNS-class loop in the automaton package by asserting that the wildcard state uses the dedicated anyDNS path instead of materializing 38 explicit rune transitions.
 func TestBuildPatternNFAWildcard(t *testing.T) {
 	n, err := buildPatternNFA("*", 0)
 	if err != nil {
@@ -107,19 +107,16 @@ func TestBuildPatternNFAWildcard(t *testing.T) {
 	if len(n.states) != 2 {
 		t.Errorf("states = %d, want 2", len(n.states))
 	}
-	// Wildcard loop state should have self-loops for every DNS char
+	// Wildcard loop state should use the compact DNS-class loop.
 	loop := n.states[1]
-	for _, c := range dnsAlphabet {
-		targets := loop.trans[c]
-		found := false
-		for _, target := range targets {
-			if target == 1 {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("wildcard state missing self-loop for %q", c)
-		}
+	if len(loop.anyDNS) != 1 || loop.anyDNS[0] != 1 {
+		t.Fatalf("wildcard anyDNS = %v, want [1]", loop.anyDNS)
+	}
+	if len(loop.trans) != 0 {
+		t.Fatalf("wildcard literal transitions = %d, want 0", len(loop.trans))
+	}
+	if eps := n.states[0].trans[epsilon]; len(eps) != 1 || eps[0] != 1 {
+		t.Fatalf("start epsilon transitions = %v, want [1]", eps)
 	}
 }
 
@@ -490,7 +487,7 @@ func TestMinimizationPreservesRuleAttribution(t *testing.T) {
 			t.Errorf("expected match for %q", name)
 			continue
 		}
-		if len(ruleIDs) != 1 || ruleIDs[0] != i {
+		if len(ruleIDs) != 1 || ruleIDs[0] != uint32(i) {
 			t.Errorf("Match(%q) ruleIDs = %v, want [%d]", name, ruleIDs, i)
 		}
 	}
@@ -527,7 +524,7 @@ func TestMinimizationSharesSuffixes(t *testing.T) {
 		if !matched {
 			t.Errorf("minimized DFA should match %q", name)
 		}
-		if len(ruleIDs) != 1 || ruleIDs[0] != i {
+		if len(ruleIDs) != 1 || ruleIDs[0] != uint32(i) {
 			t.Errorf("Match(%q) ruleIDs = %v, want [%d]", name, ruleIDs, i)
 		}
 	}
@@ -714,7 +711,7 @@ func TestLargeAutomatonManyLiteralRules(t *testing.T) {
 	n := scaledHeavyTestCount(5000, 1000)
 	rules := make([]Pattern, n)
 	for i := range n {
-		rules[i] = Pattern{Expr: fmt.Sprintf("host%d.example.com", i), RuleID: i}
+		rules[i] = Pattern{Expr: fmt.Sprintf("host%d.example.com", i), RuleID: uint32(i)}
 	}
 
 	dfa, err := Compile(rules, CompileOptions{})
@@ -731,7 +728,7 @@ func TestLargeAutomatonManyLiteralRules(t *testing.T) {
 		if !matched {
 			t.Fatalf("expected match for %q (rule %d)", name, i)
 		}
-		if len(ruleIDs) != 1 || ruleIDs[0] != i {
+		if len(ruleIDs) != 1 || ruleIDs[0] != uint32(i) {
 			t.Errorf("Match(%q) ruleIDs = %v, want [%d]", name, ruleIDs, i)
 		}
 	}
@@ -873,7 +870,7 @@ func TestLargeAutomatonRuleAttributionPreserved(t *testing.T) {
 	rules := make([]Pattern, n)
 	for i := range n {
 		// Each pattern is unique enough that no two share the same accept state
-		rules[i] = Pattern{Expr: fmt.Sprintf("unique%d.test.com", i), RuleID: i}
+		rules[i] = Pattern{Expr: fmt.Sprintf("unique%d.test.com", i), RuleID: uint32(i)}
 	}
 
 	dfa, err := Compile(rules, CompileOptions{})
@@ -887,7 +884,7 @@ func TestLargeAutomatonRuleAttributionPreserved(t *testing.T) {
 		if !matched {
 			t.Fatalf("expected match for %q", name)
 		}
-		if len(ruleIDs) != 1 || ruleIDs[0] != i {
+		if len(ruleIDs) != 1 || ruleIDs[0] != uint32(i) {
 			t.Errorf("Match(%q) ruleIDs = %v, want [%d]", name, ruleIDs, i)
 		}
 	}
@@ -1030,7 +1027,7 @@ func BenchmarkMatchLargeAutomaton(b *testing.B) {
 	const n = 5000
 	rules := make([]Pattern, n)
 	for i := range n {
-		rules[i] = Pattern{Expr: fmt.Sprintf("host%d.example.com", i), RuleID: i}
+		rules[i] = Pattern{Expr: fmt.Sprintf("host%d.example.com", i), RuleID: uint32(i)}
 	}
 	dfa, err := Compile(rules, CompileOptions{})
 	if err != nil {
@@ -1069,7 +1066,7 @@ func BenchmarkCompileLarge(b *testing.B) {
 	const n = 1000
 	rules := make([]Pattern, n)
 	for i := range n {
-		rules[i] = Pattern{Expr: fmt.Sprintf("host%d.example.com", i), RuleID: i}
+		rules[i] = Pattern{Expr: fmt.Sprintf("host%d.example.com", i), RuleID: uint32(i)}
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

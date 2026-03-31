@@ -91,12 +91,17 @@ func IndexToRune(i int) rune {
 // ---- NFA ----
 
 const epsilon rune = 0 // epsilon transitions use rune 0
+const noTransitionState = -1
 
 // nfaState is one node in the Thompson NFA with labeled transitions.
+//
+// Literal and epsilon transitions stay sparse in trans. Wildcard loops use
+// anyDNS so '*' does not have to materialize 38 explicit rune transitions.
 type nfaState struct {
 	trans   map[rune][]int // rune -> list of target state IDs
+	anyDNS  []int          // transitions taken for any DNS character
 	accept  bool
-	ruleIDs []int
+	ruleIDs []uint32
 }
 
 // nfa holds the complete non-deterministic finite automaton before subset construction.
@@ -122,9 +127,14 @@ func (n *nfa) addTrans(from int, r rune, to int) {
 	n.states[from].trans[r] = append(n.states[from].trans[r], to)
 }
 
+// addAnyDNSTrans records a transition taken for any supported DNS character.
+func (n *nfa) addAnyDNSTrans(from int, to int) {
+	n.states[from].anyDNS = append(n.states[from].anyDNS, to)
+}
+
 // buildPatternNFA constructs a Thompson NFA for a single pattern.
 // Pattern language: literal chars, '.' literal, '*' = zero-or-more DNS chars.
-func buildPatternNFA(pattern string, ruleID int) (*nfa, error) {
+func buildPatternNFA(pattern string, ruleID uint32) (*nfa, error) {
 	n := newNFA()
 	start := n.addState()
 	n.start = start
@@ -133,12 +143,10 @@ func buildPatternNFA(pattern string, ruleID int) (*nfa, error) {
 	for _, r := range pattern {
 		switch {
 		case r == '*':
-			// Wildcard: self-loop on all DNS chars
+			// Wildcard: self-loop on the DNS character class.
 			loopState := n.addState()
 			n.addTrans(current, epsilon, loopState)
-			for _, c := range dnsAlphabet {
-				n.addTrans(loopState, c, loopState)
-			}
+			n.addAnyDNSTrans(loopState, loopState)
 			current = loopState
 		case RuneToIndex(r) >= 0:
 			next := n.addState()
@@ -151,7 +159,7 @@ func buildPatternNFA(pattern string, ruleID int) (*nfa, error) {
 
 	// Mark final state as accept
 	n.states[current].accept = true
-	n.states[current].ruleIDs = []int{ruleID}
+	n.states[current].ruleIDs = []uint32{ruleID}
 	return n, nil
 }
 
@@ -168,7 +176,7 @@ func combineNFAs(nfas []*nfa) *nfa {
 		for _, s := range sub.states {
 			newID := combined.addState()
 			combined.states[newID].accept = s.accept
-			combined.states[newID].ruleIDs = append([]int(nil), s.ruleIDs...)
+			combined.states[newID].ruleIDs = append([]uint32(nil), s.ruleIDs...)
 		}
 		// Rewrite transitions with offset
 		for i, s := range sub.states {
@@ -176,6 +184,9 @@ func combineNFAs(nfas []*nfa) *nfa {
 				for _, t := range targets {
 					combined.addTrans(i+offset, r, t+offset)
 				}
+			}
+			for _, t := range s.anyDNS {
+				combined.addAnyDNSTrans(i+offset, t+offset)
 			}
 		}
 		// Epsilon from new start to sub's start
@@ -211,19 +222,35 @@ func epsilonClosure(n *nfa, states []int) []int {
 	return result
 }
 
-// ---- Map-based DFA (used only during construction and minimization) ----
+// ---- Intermediate DFA (used only during construction and minimization) ----
 
-// mapDFAState is one state in the intermediate map-based DFA.
-type mapDFAState struct {
-	trans   map[rune]int
+// intermediateDFAState is one state in the intermediate DFA.
+//
+// Transitions are stored in a compact, fixed-size array indexed by
+// RuneToIndex to reduce heap churn during subset construction and Hopcroft
+// minimization.
+type intermediateDFAState struct {
+	trans   [AlphabetSize]int
 	accept  bool
-	ruleIDs []int
+	ruleIDs []uint32
 }
 
-// mapDFA is the map-based DFA used during subset construction and Hopcroft minimization.
-type mapDFA struct {
+// intermediateDFA is the temporary DFA used during subset construction and
+// Hopcroft minimization before conversion to the exported pointer-based DFA.
+type intermediateDFA struct {
 	start  int
-	states []mapDFAState
+	states []intermediateDFAState
+}
+
+func newIntermediateDFAState(accept bool, ruleIDs []uint32) intermediateDFAState {
+	s := intermediateDFAState{
+		accept:  accept,
+		ruleIDs: ruleIDs,
+	}
+	for i := range s.trans {
+		s.trans[i] = noTransitionState
+	}
+	return s
 }
 
 // ---- Exported DFA (array-based, cache-optimized) ----
@@ -236,7 +263,7 @@ type mapDFA struct {
 type DFAState struct {
 	Trans   [AlphabetSize]*DFAState
 	Accept  bool
-	RuleIDs []int // which rules led to this accept state
+	RuleIDs []uint32 // which rules led to this accept state
 }
 
 // DFA is an array-based deterministic finite automaton compiled from domain
@@ -271,7 +298,7 @@ func shouldMinimize(opts CompileOptions) bool {
 // Pattern pairs a canonical filter pattern string with its rule ID.
 type Pattern struct {
 	Expr   string // canonical pattern (lowercase DNS chars and '*')
-	RuleID int    // caller-assigned identifier for match attribution
+	RuleID uint32 // caller-assigned identifier for match attribution
 }
 
 // Compile compiles patterns into a minimized DFA ready for repeated Match
@@ -350,19 +377,20 @@ func Compile(patterns []Pattern, opts CompileOptions) (*DFA, error) {
 	return dfa, nil
 }
 
-// toDFA converts an internal map-based DFA to the exported pointer-based DFA.
-func (md *mapDFA) toDFA() *DFA {
+// toDFA converts an internal intermediate DFA to the exported pointer-based DFA.
+func (md *intermediateDFA) toDFA() *DFA {
 	d := &DFA{states: make([]DFAState, len(md.states))}
 
-	for i, ms := range md.states {
+	for i := range md.states {
+		ms := &md.states[i]
 		d.states[i].Accept = ms.accept
 		d.states[i].RuleIDs = ms.ruleIDs
 	}
 
-	for i, ms := range md.states {
-		for r, target := range ms.trans {
-			idx := RuneToIndex(r)
-			if idx >= 0 {
+	for i := range md.states {
+		ms := &md.states[i]
+		for idx, target := range ms.trans {
+			if target != noTransitionState {
 				d.states[i].Trans[idx] = &d.states[target]
 			}
 		}
@@ -372,9 +400,9 @@ func (md *mapDFA) toDFA() *DFA {
 	return d
 }
 
-// subsetConstruction converts an NFA to a map-based DFA using the classic algorithm.
-func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*mapDFA, error) {
-	md := &mapDFA{}
+// subsetConstruction converts an NFA to an intermediate DFA using the classic algorithm.
+func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*intermediateDFA, error) {
+	md := &intermediateDFA{}
 
 	stateMap := make(map[string]int)
 
@@ -384,11 +412,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*mapDFA, err
 	md.start = 0
 
 	accept, ruleIDs := computeAccept(n, startClosure)
-	md.states = append(md.states, mapDFAState{
-		trans:   make(map[rune]int),
-		accept:  accept,
-		ruleIDs: ruleIDs,
-	})
+	md.states = append(md.states, newIntermediateDFAState(accept, ruleIDs))
 
 	worklist := [][]int{startClosure}
 
@@ -406,6 +430,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*mapDFA, err
 			var moved []int
 			for _, s := range current {
 				moved = append(moved, n.states[s].trans[c]...)
+				moved = append(moved, n.states[s].anyDNS...)
 			}
 			if len(moved) == 0 {
 				continue
@@ -420,15 +445,11 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*mapDFA, err
 				newID := len(md.states)
 				stateMap[key] = newID
 				a, rids := computeAccept(n, closure)
-				md.states = append(md.states, mapDFAState{
-					trans:   make(map[rune]int),
-					accept:  a,
-					ruleIDs: rids,
-				})
+				md.states = append(md.states, newIntermediateDFAState(a, rids))
 				worklist = append(worklist, closure)
 			}
 
-			md.states[currentID].trans[c] = stateMap[key]
+			md.states[currentID].trans[RuneToIndex(c)] = stateMap[key]
 		}
 	}
 
@@ -436,8 +457,8 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*mapDFA, err
 }
 
 // computeAccept derives the accept flag and merged rule IDs for a DFA state set.
-func computeAccept(n *nfa, stateSet []int) (accept bool, ruleIDs []int) {
-	seen := make(map[int]bool)
+func computeAccept(n *nfa, stateSet []int) (accept bool, ruleIDs []uint32) {
+	seen := make(map[uint32]bool)
 	for _, s := range stateSet {
 		if n.states[s].accept {
 			accept = true
@@ -449,7 +470,7 @@ func computeAccept(n *nfa, stateSet []int) (accept bool, ruleIDs []int) {
 			}
 		}
 	}
-	sort.Ints(ruleIDs)
+	sort.Slice(ruleIDs, func(i, j int) bool { return ruleIDs[i] < ruleIDs[j] })
 	return accept, ruleIDs
 }
 
@@ -468,7 +489,7 @@ func makeSetKey(states []int) string {
 // ---- Hopcroft Minimization ----
 
 // hopcroftMinimize merges equivalent states to produce a minimal DFA.
-func hopcroftMinimize(md *mapDFA) *mapDFA {
+func hopcroftMinimize(md *intermediateDFA) *intermediateDFA {
 	n := len(md.states)
 	if n <= 1 {
 		return md
@@ -477,7 +498,8 @@ func hopcroftMinimize(md *mapDFA) *mapDFA {
 	// Initial partition: accept states vs non-accept states
 	// Further split accept states by ruleID sets for correct attribution.
 	partitionMap := make(map[string][]int)
-	for i, s := range md.states {
+	for i := range md.states {
+		s := &md.states[i]
 		key := "N"
 		if s.accept {
 			key = "A:" + ruleIDsKey(s.ruleIDs)
@@ -517,22 +539,20 @@ func hopcroftMinimize(md *mapDFA) *mapDFA {
 		updateMapping()
 	}
 
-	// Build minimized mapDFA
-	minMD := &mapDFA{}
+	// Build minimized intermediateDFA.
+	minMD := &intermediateDFA{}
 	partitionID := make(map[int]int)
 	for pi := range partitions {
 		partitionID[pi] = pi
 	}
-	minMD.states = make([]mapDFAState, len(partitions))
+	minMD.states = make([]intermediateDFAState, len(partitions))
 	for pi, p := range partitions {
 		rep := p[0]
-		minMD.states[pi] = mapDFAState{
-			trans:   make(map[rune]int),
-			accept:  md.states[rep].accept,
-			ruleIDs: md.states[rep].ruleIDs,
-		}
-		for r, target := range md.states[rep].trans {
-			minMD.states[pi].trans[r] = partitionID[stateToPartition[target]]
+		minMD.states[pi] = newIntermediateDFAState(md.states[rep].accept, md.states[rep].ruleIDs)
+		for idx, target := range md.states[rep].trans {
+			if target != noTransitionState {
+				minMD.states[pi].trans[idx] = partitionID[stateToPartition[target]]
+			}
 		}
 	}
 	minMD.start = partitionID[stateToPartition[md.start]]
@@ -541,7 +561,7 @@ func hopcroftMinimize(md *mapDFA) *mapDFA {
 }
 
 // splitPartition refines one partition group by transition signature.
-func splitPartition(md *mapDFA, partition, stateToPartition []int) [][]int {
+func splitPartition(md *intermediateDFA, partition, stateToPartition []int) [][]int {
 	if len(partition) <= 1 {
 		return [][]int{partition}
 	}
@@ -560,12 +580,12 @@ func splitPartition(md *mapDFA, partition, stateToPartition []int) [][]int {
 }
 
 // mapTransitionSig computes a canonical transition fingerprint for partition refinement.
-func mapTransitionSig(md *mapDFA, state int, stateToPartition []int) string {
+func mapTransitionSig(md *intermediateDFA, state int, stateToPartition []int) string {
 	buf := make([]byte, 0, AlphabetSize*8)
-	for _, c := range dnsAlphabet {
-		target, ok := md.states[state].trans[c]
-		if ok {
-			buf = append(buf, byte(c), ':') //nolint:gosec // c is from dnsAlphabet (ASCII only)
+	for idx, target := range md.states[state].trans {
+		if target != noTransitionState {
+			buf = strconv.AppendInt(buf, int64(idx), 10)
+			buf = append(buf, ':')
 			buf = strconv.AppendInt(buf, int64(stateToPartition[target]), 10)
 			buf = append(buf, ',')
 		}
@@ -574,13 +594,13 @@ func mapTransitionSig(md *mapDFA, state int, stateToPartition []int) string {
 }
 
 // ruleIDsKey serializes rule IDs into a string key for accept-state partitioning.
-func ruleIDsKey(ids []int) string {
+func ruleIDsKey(ids []uint32) string {
 	buf := make([]byte, 0, len(ids)*4)
 	for i, id := range ids {
 		if i > 0 {
 			buf = append(buf, ',')
 		}
-		buf = strconv.AppendInt(buf, int64(id), 10)
+		buf = strconv.AppendUint(buf, uint64(id), 10)
 	}
 	return string(buf)
 }
@@ -592,7 +612,7 @@ func ruleIDsKey(ids []int) string {
 // The input parameter should already be normalized to lowercase DNS form.
 // Match returns whether the input matched any pattern, together with the
 // matching rule IDs. The DFA traversal is O(n) in the length of input.
-func (d *DFA) Match(input string) (matched bool, ruleIDs []int) {
+func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
 	if d == nil || d.start == nil {
 		return false, nil
 	}

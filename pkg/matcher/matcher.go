@@ -68,7 +68,7 @@ func CompileRules(rules []filterlist.Rule, opts CompileOptions) (*Matcher, error
 	}
 
 	// Split rules into literals and wildcards.
-	literalEntries := make(map[string][]int)
+	literalEntries := make(map[string][]uint32)
 	var wildcardPatterns []automaton.Pattern
 
 	for i, r := range rules {
@@ -76,10 +76,10 @@ func CompileRules(rules []filterlist.Rule, opts CompileOptions) (*Matcher, error
 		if strings.Contains(pattern, "*") {
 			wildcardPatterns = append(wildcardPatterns, automaton.Pattern{
 				Expr:   pattern,
-				RuleID: i,
+				RuleID: uint32(i),
 			})
 		} else {
-			literalEntries[pattern] = append(literalEntries[pattern], i)
+			literalEntries[pattern] = append(literalEntries[pattern], uint32(i))
 		}
 	}
 
@@ -113,7 +113,7 @@ func CompileRules(rules []filterlist.Rule, opts CompileOptions) (*Matcher, error
 // Returns true if any stored pattern matches, along with all matching rule IDs.
 // The suffix map is checked first; if both literal and wildcard patterns match,
 // all rule IDs are combined.
-func (m *Matcher) Match(input string) (matched bool, ruleIDs []int) {
+func (m *Matcher) Match(input string) (matched bool, ruleIDs []uint32) {
 	if m == nil {
 		return false, nil
 	}

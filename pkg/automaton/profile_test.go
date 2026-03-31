@@ -122,7 +122,10 @@ func loadProfilePatterns(t *testing.T) []Pattern {
 		}
 		for _, r := range parsed {
 			if !r.IsAllow && strings.Contains(r.Pattern, "*") {
-				patterns = append(patterns, Pattern{Expr: r.Pattern, RuleID: len(patterns)})
+				if len(patterns) > int(^uint32(0)) {
+					t.Fatal("too many wildcard patterns for uint32 rule IDs")
+				}
+				patterns = append(patterns, Pattern{Expr: r.Pattern, RuleID: uint32(len(patterns))}) //nolint:gosec // guarded by the bound check above
 			}
 		}
 	}

@@ -259,15 +259,15 @@ func normalizeName(name string) string {
 // logDebugMatch logs a human-readable line when the debug directive is active.
 // It shows the list label, queried name, the source file:line of the first
 // matching rule (basename only), and the original rule pattern in parentheses.
-func (rf *RegFilter) logDebugMatch(label, name string, ruleIDs []int, sourcesVal, patternsVal interface{}) {
+func (rf *RegFilter) logDebugMatch(label, name string, ruleIDs []uint32, sourcesVal, patternsVal interface{}) {
 	sources, _ := sourcesVal.([]string)
 	patterns, _ := patternsVal.([]string)
 	if len(ruleIDs) == 0 || len(sources) == 0 {
 		log.Infof("%s match name=%s rule=unknown", label, name)
 		return
 	}
-	id := ruleIDs[0]
-	if id < 0 || id >= len(sources) {
+	id := int(ruleIDs[0])
+	if id >= len(sources) {
 		log.Infof("%s match name=%s rule=unknown", label, name)
 		return
 	}

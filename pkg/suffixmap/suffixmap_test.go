@@ -33,7 +33,7 @@ func TestNewNilMap(t *testing.T) {
 // TestNewEmptyMap verifies that an empty entries map produces a valid SuffixMap
 // in the suffixmap package by asserting that it never matches any query.
 func TestNewEmptyMap(t *testing.T) {
-	sm := New(map[string][]int{})
+	sm := New(map[string][]uint32{})
 	if sm.Len() != 0 {
 		t.Errorf("Len() = %d, want 0", sm.Len())
 	}
@@ -48,13 +48,13 @@ func TestNewEmptyMap(t *testing.T) {
 func TestLen(t *testing.T) {
 	tests := []struct {
 		name    string
-		entries map[string][]int
+		entries map[string][]uint32
 		want    int
 	}{
 		{"nil", nil, 0},
-		{"empty", map[string][]int{}, 0},
-		{"one", map[string][]int{"a.com": {0}}, 1},
-		{"three", map[string][]int{"a.com": {0}, "b.com": {1}, "c.com": {2}}, 3},
+		{"empty", map[string][]uint32{}, 0},
+		{"one", map[string][]uint32{"a.com": {0}}, 1},
+		{"three", map[string][]uint32{"a.com": {0}, "b.com": {1}, "c.com": {2}}, 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestLenNilReceiver(t *testing.T) {
 // matches a stored pattern exactly in the suffixmap package by asserting that
 // only the matching domain returns true.
 func TestMatchExact(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"ads.example.com":     {0},
 		"tracker.example.com": {1},
 	})
@@ -114,7 +114,7 @@ func TestMatchExact(t *testing.T) {
 // in the suffixmap package by asserting that subdomain queries match and
 // that non-subdomain queries do not.
 func TestMatchSubdomain(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"example.com": {0},
 	})
 
@@ -150,7 +150,7 @@ func TestMatchSubdomain(t *testing.T) {
 // for each stored pattern independently in the suffixmap package by asserting
 // that each pattern's subdomains match while unrelated domains do not.
 func TestMatchSubdomainMultiplePatterns(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"ads.example.com":     {0},
 		"tracker.example.com": {1},
 	})
@@ -178,7 +178,7 @@ func TestMatchSubdomainMultiplePatterns(t *testing.T) {
 // in the suffixmap package by asserting that both the parent and more specific
 // child pattern produce rule IDs when a deep subdomain matches both.
 func TestMatchParentAndChild(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"example.com":     {0},
 		"ads.example.com": {1},
 	})
@@ -188,7 +188,7 @@ func TestMatchParentAndChild(t *testing.T) {
 	if !matched {
 		t.Fatal("expected match for sub.ads.example.com")
 	}
-	sort.Ints(ids)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	if len(ids) != 2 || ids[0] != 0 || ids[1] != 1 {
 		t.Errorf("expected ruleIDs [0, 1], got %v", ids)
 	}
@@ -199,7 +199,7 @@ func TestMatchParentAndChild(t *testing.T) {
 	if !matched {
 		t.Fatal("expected match for ads.example.com")
 	}
-	sort.Ints(ids)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	if len(ids) != 2 || ids[0] != 0 || ids[1] != 1 {
 		t.Errorf("expected ruleIDs [0, 1], got %v", ids)
 	}
@@ -222,7 +222,7 @@ func TestMatchParentAndChild(t *testing.T) {
 // in the suffixmap package by asserting correct attribution for
 // single and duplicate patterns.
 func TestMatchRuleIDs(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"ads.example.com": {0, 5}, // two rules produce the same pattern
 		"tracker.net":     {2},
 	})
@@ -269,7 +269,7 @@ func TestMatchNilReceiver(t *testing.T) {
 // in the suffixmap package by asserting that a TLD-like pattern matches
 // itself and its subdomains.
 func TestMatchSingleLabel(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"com": {0},
 	})
 
@@ -294,7 +294,7 @@ func TestMatchSingleLabel(t *testing.T) {
 // TestMatchEmptyInput verifies that empty queries never match in the suffixmap
 // package by asserting that even a "catch-all" TLD pattern rejects empty input.
 func TestMatchEmptyInput(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"com": {0},
 	})
 	matched, _ := sm.Match("")
@@ -310,7 +310,7 @@ func TestMatchTrailingDot(t *testing.T) {
 	// should not match because the suffix walk will find "example.com."
 	// which is not in the map. This is fine — callers are expected to
 	// normalize the query before calling Match.
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"example.com": {0},
 	})
 	matched, _ := sm.Match("example.com.")
@@ -323,9 +323,9 @@ func TestMatchTrailingDot(t *testing.T) {
 // entries in the suffixmap package by asserting correct matching across
 // thousands of unique patterns.
 func TestMatchLargeMap(t *testing.T) {
-	entries := make(map[string][]int, 5000)
+	entries := make(map[string][]uint32, 5000)
 	for i := range 5000 {
-		entries[fmt.Sprintf("host%d.example.com", i)] = []int{i}
+		entries[fmt.Sprintf("host%d.example.com", i)] = []uint32{uint32(i)}
 	}
 	sm := New(entries)
 
@@ -335,7 +335,7 @@ func TestMatchLargeMap(t *testing.T) {
 		if !matched {
 			t.Fatalf("expected match for %q", name)
 		}
-		if len(ids) != 1 || ids[0] != i {
+		if len(ids) != 1 || ids[0] != uint32(i) {
 			t.Errorf("Match(%q) ruleIDs = %v, want [%d]", name, ids, i)
 		}
 
@@ -345,7 +345,7 @@ func TestMatchLargeMap(t *testing.T) {
 		if !matched {
 			t.Fatalf("expected subdomain match for %q", subName)
 		}
-		if len(ids) != 1 || ids[0] != i {
+		if len(ids) != 1 || ids[0] != uint32(i) {
 			t.Errorf("Match(%q) ruleIDs = %v, want [%d]", subName, ids, i)
 		}
 	}
@@ -361,7 +361,7 @@ func TestMatchLargeMap(t *testing.T) {
 // matches at label boundaries in the suffixmap package by asserting that
 // "ample.com" does not match when "example.com" is stored.
 func TestMatchNoFalsePositiveFromPartialLabel(t *testing.T) {
-	sm := New(map[string][]int{
+	sm := New(map[string][]uint32{
 		"example.com": {0},
 	})
 
@@ -388,9 +388,9 @@ func TestMatchNoFalsePositiveFromPartialLabel(t *testing.T) {
 // BenchmarkMatch measures suffix lookup performance for realistic domain
 // queries against a moderately sized pattern set.
 func BenchmarkMatch(b *testing.B) {
-	entries := make(map[string][]int, 1000)
+	entries := make(map[string][]uint32, 1000)
 	for i := range 1000 {
-		entries[fmt.Sprintf("host%d.example.com", i)] = []int{i}
+		entries[fmt.Sprintf("host%d.example.com", i)] = []uint32{uint32(i)}
 	}
 	sm := New(entries)
 

@@ -207,21 +207,21 @@ func TestShortSource(t *testing.T) {
 func TestWriteRuleDetail(t *testing.T) {
 	tests := []struct {
 		name     string
-		ruleIDs  []int
+		ruleIDs  []uint32
 		sources  []string
 		patterns []string
 		want     string
 	}{
 		{
 			name:     "shows source and pattern",
-			ruleIDs:  []int{0},
+			ruleIDs:  []uint32{0},
 			sources:  []string{"/etc/bl/deny.txt:3"},
 			patterns: []string{"ads.example.com"},
 			want:     " rule=deny.txt:3 (ads.example.com)",
 		},
 		{
 			name:     "shows source without pattern",
-			ruleIDs:  []int{0},
+			ruleIDs:  []uint32{0},
 			sources:  []string{"/etc/bl/deny.txt:3"},
 			patterns: []string{""},
 			want:     " rule=deny.txt:3",
