@@ -1,11 +1,22 @@
 package regfilter
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/coredns/caddy"
+	"github.com/coredns/coredns/plugin"
+	"github.com/miekg/dns"
 )
+
+type namedHandler struct{ name string }
+
+func (h namedHandler) ServeDNS(context.Context, dns.ResponseWriter, *dns.Msg) (int, error) {
+	return dns.RcodeSuccess, nil
+}
+
+func (h namedHandler) Name() string { return h.name }
 
 // TestParseConfigRequiresAtLeastOneFilterDirectory verifies that operators get
 // a configuration error instead of a no-op plugin when no filter directory is set.
@@ -196,5 +207,61 @@ func TestParseConfigInvertWhitelistDirective(t *testing.T) {
 	}
 	if !cfg.InvertWhitelist {
 		t.Error("expected InvertWhitelist=true when directive is present")
+	}
+}
+
+// TestPluginOrderWarning verifies that operators get a clear startup warning
+// when regfilter is configured behind forward and would never see live DNS
+// queries.
+//
+// This test covers the CoreDNS handler-order validation helper used during
+// plugin startup.
+//
+// It asserts that the helper warns only when forward appears before regfilter
+// in the execution chain.
+func TestPluginOrderWarning(t *testing.T) {
+	tests := []struct {
+		name     string
+		handlers []plugin.Handler
+		wantWarn bool
+	}{
+		{
+			name: "warns when forward precedes regfilter",
+			handlers: []plugin.Handler{
+				namedHandler{name: "errors"},
+				namedHandler{name: "forward"},
+				namedHandler{name: "regfilter"},
+			},
+			wantWarn: true,
+		},
+		{
+			name: "stays quiet when regfilter precedes forward",
+			handlers: []plugin.Handler{
+				namedHandler{name: "errors"},
+				namedHandler{name: "regfilter"},
+				namedHandler{name: "forward"},
+			},
+			wantWarn: false,
+		},
+		{
+			name: "stays quiet when forward is absent",
+			handlers: []plugin.Handler{
+				namedHandler{name: "errors"},
+				namedHandler{name: "regfilter"},
+			},
+			wantWarn: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pluginOrderWarning(tt.handlers)
+			if tt.wantWarn && got == "" {
+				t.Fatal("expected warning, got none")
+			}
+			if !tt.wantWarn && got != "" {
+				t.Fatalf("expected no warning, got %q", got)
+			}
+		})
 	}
 }

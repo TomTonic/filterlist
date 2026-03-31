@@ -41,12 +41,45 @@ func setup(c *caddy.Controller) error {
 		return rf.Stop()
 	})
 
+	c.OnStartup(func() error {
+		if warning := pluginOrderWarning(dnsserver.GetConfig(c).Handlers()); warning != "" {
+			log.Warning(warning)
+		}
+		return nil
+	})
+
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		rf.Next = next
 		return rf
 	})
 
 	return nil
+}
+
+// pluginOrderWarning explains when the configured handler order makes regfilter
+// ineffective because a terminal forward plugin runs earlier in the chain.
+func pluginOrderWarning(handlers []plugin.Handler) string {
+	regfilterIndex := -1
+	forwardIndex := -1
+
+	for index, handler := range handlers {
+		switch handler.Name() {
+		case "regfilter":
+			if regfilterIndex == -1 {
+				regfilterIndex = index
+			}
+		case "forward":
+			if forwardIndex == -1 {
+				forwardIndex = index
+			}
+		}
+	}
+
+	if regfilterIndex == -1 || forwardIndex == -1 || regfilterIndex < forwardIndex {
+		return ""
+	}
+
+	return "regfilter is ordered after the 'forward' plugin in the CoreDNS plugin chain; forward is typically terminal, so regfilter will not see queries (and not log them). Move regfilter before forward in plugin.cfg/directives order."
 }
 
 // parseConfig reads the regfilter stanza from c and returns a validated Config.

@@ -63,6 +63,7 @@ In that configuration:
 - `prometheus` exposes the metrics described below.
 - `regfilter` evaluates queries before they are forwarded upstream.
 - `whitelist_dir` takes precedence over `blacklist_dir` when the same domain matches both sets.
+- CoreDNS execution order follows the compiled plugin chain, not the stanza order in the Corefile. Include the `regfilter` plugin before the `forward` plugin in the build, or `forward` will answer queries before `regfilter` can inspect or log them.
 
 ### CLI Tool
 
