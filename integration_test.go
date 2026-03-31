@@ -5,9 +5,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/tomtonic/coredns-regfilter/pkg/automaton"
-	"github.com/tomtonic/coredns-regfilter/pkg/blockloader"
-	"github.com/tomtonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
+	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
 type testLogger struct {

@@ -11,7 +11,7 @@ import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 
-	rfmetrics "github.com/tomtonic/coredns-regfilter/pkg/metrics"
+	rfmetrics "github.com/TomTonic/coredns-regfilter/pkg/metrics"
 )
 
 func init() {

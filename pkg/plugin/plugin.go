@@ -15,9 +15,9 @@ import (
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/miekg/dns"
 
-	"github.com/tomtonic/coredns-regfilter/pkg/automaton"
-	"github.com/tomtonic/coredns-regfilter/pkg/metrics"
-	"github.com/tomtonic/coredns-regfilter/pkg/watcher"
+	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
+	"github.com/TomTonic/coredns-regfilter/pkg/metrics"
+	"github.com/TomTonic/coredns-regfilter/pkg/watcher"
 )
 
 var log = clog.NewWithPlugin("regfilter")

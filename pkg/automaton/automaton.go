@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tomtonic/coredns-regfilter/internal/util"
-	"github.com/tomtonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/coredns-regfilter/internal/util"
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
 // AlphabetSize is the number of characters in the DNS alphabet (a-z, 0-9, '-', '.').

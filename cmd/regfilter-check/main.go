@@ -15,9 +15,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tomtonic/coredns-regfilter/internal/util"
-	"github.com/tomtonic/coredns-regfilter/pkg/automaton"
-	"github.com/tomtonic/coredns-regfilter/pkg/blockloader"
+	"github.com/TomTonic/coredns-regfilter/internal/util"
+	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
+	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
 )
 
 func main() {

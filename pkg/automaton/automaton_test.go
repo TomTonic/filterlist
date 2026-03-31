@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tomtonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
 // ---------------------------------------------------------------------------

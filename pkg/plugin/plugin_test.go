@@ -13,9 +13,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/tomtonic/coredns-regfilter/pkg/automaton"
-	"github.com/tomtonic/coredns-regfilter/pkg/filterlist"
-	rfmetrics "github.com/tomtonic/coredns-regfilter/pkg/metrics"
+	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
+	rfmetrics "github.com/TomTonic/coredns-regfilter/pkg/metrics"
 )
 
 // mockResponseWriter captures the DNS response.

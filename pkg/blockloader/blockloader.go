@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tomtonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
 // LoadDirectory loads supported filter list files from dir and aggregates them.

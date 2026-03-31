@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tomtonic/coredns-regfilter/internal/util"
+	"github.com/TomTonic/coredns-regfilter/internal/util"
 )
 
 // Rule represents one canonicalized filter entry ready for compilation.
