@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -40,14 +41,19 @@ type ActionConfig struct {
 // WhitelistDir and BlacklistDir point at directories containing supported
 // filter list files. Action configures the DNS response for blocked names,
 // while Debounce, MaxStates, and CompileTimeout bound filesystem churn and DFA
-// compilation cost. Setup callers typically obtain Config via parseConfig.
+// compilation cost. InvertWhitelist controls which rules from the whitelist
+// directory are compiled: by default (false) only @@-prefixed exception rules
+// are used; when true, non-@@ rules (||domain^) are used instead.
+// Setup callers typically obtain Config via parseConfig.
 type Config struct {
-	WhitelistDir   string
-	BlacklistDir   string
-	Action         ActionConfig
-	Debounce       time.Duration
-	MaxStates      int
-	CompileTimeout time.Duration
+	WhitelistDir    string
+	BlacklistDir    string
+	Action          ActionConfig
+	Debounce        time.Duration
+	MaxStates       int
+	CompileTimeout  time.Duration
+	Debug           bool
+	InvertWhitelist bool
 }
 
 // RegFilter is the CoreDNS plugin handler.
@@ -60,8 +66,12 @@ type RegFilter struct {
 	Config  Config
 	metrics *metrics.Registry
 
-	whitelist atomic.Value // *automaton.DFA
-	blacklist atomic.Value // *automaton.DFA
+	whitelist  atomic.Value // *automaton.DFA
+	blacklist  atomic.Value // *automaton.DFA
+	wlSources  atomic.Value // []string
+	blSources  atomic.Value // []string
+	wlPatterns atomic.Value // []string
+	blPatterns atomic.Value // []string
 
 	stopWatcher func() error
 }
@@ -148,13 +158,15 @@ func (rf *RegFilter) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.
 		if rf.metrics != nil {
 			rf.metrics.WhitelistChecks.Inc()
 		}
-		if matched, _ := wl.Match(name); matched {
+		if matched, ruleIDs := wl.Match(name); matched {
 			if rf.metrics != nil {
 				rf.metrics.WhitelistHits.Inc()
 				elapsed := time.Since(start).Seconds()
 				rf.metrics.MatchDuration.WithLabelValues("accept").Observe(elapsed)
 			}
-			log.Debugf("whitelist match: %s", name)
+			if rf.Config.Debug {
+				rf.logDebugMatch("whitelist", name, ruleIDs, rf.wlSources.Load(), rf.wlPatterns.Load())
+			}
 			return plugin.NextOrFailure(rf.Name(), rf.Next, ctx, w, r)
 		}
 	}
@@ -164,13 +176,15 @@ func (rf *RegFilter) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.
 		if rf.metrics != nil {
 			rf.metrics.BlacklistChecks.Inc()
 		}
-		if matched, _ := bl.Match(name); matched {
+		if matched, ruleIDs := bl.Match(name); matched {
 			if rf.metrics != nil {
 				rf.metrics.BlacklistHits.Inc()
 				elapsed := time.Since(start).Seconds()
 				rf.metrics.MatchDuration.WithLabelValues("reject").Observe(elapsed)
 			}
-			log.Debugf("blacklist match: %s", name)
+			if rf.Config.Debug {
+				rf.logDebugMatch("blacklist", name, ruleIDs, rf.blSources.Load(), rf.blPatterns.Load())
+			}
 			return rf.respondBlocked(w, r, qname, qtype)
 		}
 	}
@@ -179,6 +193,9 @@ func (rf *RegFilter) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.
 	if rf.metrics != nil {
 		elapsed := time.Since(start).Seconds()
 		rf.metrics.MatchDuration.WithLabelValues("pass").Observe(elapsed)
+	}
+	if rf.Config.Debug {
+		log.Infof("no match name=%s", name)
 	}
 	return plugin.NextOrFailure(rf.Name(), rf.Next, ctx, w, r)
 }
@@ -239,6 +256,41 @@ func normalizeName(name string) string {
 	return name
 }
 
+// logDebugMatch logs a human-readable line when the debug directive is active.
+// It shows the list label, queried name, the source file:line of the first
+// matching rule (basename only), and the original rule pattern in parentheses.
+func (rf *RegFilter) logDebugMatch(label, name string, ruleIDs []int, sourcesVal, patternsVal interface{}) {
+	sources, _ := sourcesVal.([]string)
+	patterns, _ := patternsVal.([]string)
+	if len(ruleIDs) == 0 || len(sources) == 0 {
+		log.Infof("%s match name=%s rule=unknown", label, name)
+		return
+	}
+	id := ruleIDs[0]
+	if id < 0 || id >= len(sources) {
+		log.Infof("%s match name=%s rule=unknown", label, name)
+		return
+	}
+	src := shortSource(sources[id])
+	if id < len(patterns) && patterns[id] != "" {
+		log.Infof("%s match name=%s rule=%s (%s)", label, name, src, patterns[id])
+	} else {
+		log.Infof("%s match name=%s rule=%s", label, name, src)
+	}
+}
+
+// shortSource converts a "path/to/dir/list.txt:42" source string to "list.txt:42".
+func shortSource(source string) string {
+	if source == "" {
+		return "unknown"
+	}
+	// Split off ":line" suffix, take basename of path, reassemble.
+	if idx := strings.LastIndex(source, ":"); idx > 0 {
+		return filepath.Base(source[:idx]) + source[idx:]
+	}
+	return filepath.Base(source)
+}
+
 // StartWatcher starts filesystem monitoring and the initial DFA load.
 //
 // It uses the directories and limits from rf.Config, publishes metrics for
@@ -247,12 +299,13 @@ func normalizeName(name string) string {
 // watcher infrastructure itself cannot be started.
 func (rf *RegFilter) StartWatcher() error {
 	stop, err := watcher.Start(&watcher.Config{
-		WhitelistDir:   rf.Config.WhitelistDir,
-		BlacklistDir:   rf.Config.BlacklistDir,
-		Debounce:       rf.Config.Debounce,
-		Logger:         &pluginLogger{},
-		MaxCompileTime: rf.Config.CompileTimeout,
-		MaxStates:      rf.Config.MaxStates,
+		WhitelistDir:    rf.Config.WhitelistDir,
+		BlacklistDir:    rf.Config.BlacklistDir,
+		Debounce:        rf.Config.Debounce,
+		Logger:          &pluginLogger{},
+		MaxCompileTime:  rf.Config.CompileTimeout,
+		MaxStates:       rf.Config.MaxStates,
+		InvertWhitelist: rf.Config.InvertWhitelist,
 		OnCompile: func(_ string, duration time.Duration) {
 			if rf.metrics != nil {
 				rf.metrics.CompileDuration.Observe(duration.Seconds())
@@ -268,6 +321,10 @@ func (rf *RegFilter) StartWatcher() error {
 		OnUpdate: func(wl watcher.Snapshot, bl watcher.Snapshot) {
 			rf.SetWhitelist(wl.DFA)
 			rf.SetBlacklist(bl.DFA)
+			rf.wlSources.Store(wl.Sources)
+			rf.blSources.Store(bl.Sources)
+			rf.wlPatterns.Store(wl.Patterns)
+			rf.blPatterns.Store(bl.Patterns)
 			if rf.metrics != nil {
 				rf.metrics.WhitelistRules.Set(float64(wl.RuleCount))
 				rf.metrics.BlacklistRules.Set(float64(bl.RuleCount))

@@ -84,7 +84,7 @@ The CLI is useful for validating large lists before deploying them into CoreDNS,
 | Syntax | Example | Description |
 |--------|---------|-------------|
 | Domain filter | `\|\|example.com^` | Block exact domain |
-| Exception | `@@\|\|example.com^` | Whitelist domain |
+| Exception | `@@\|\|example.com^` | Allow rule (used for whitelist entries; excluded from blacklist DFA) |
 | Wildcard | `\|\|*.ads.example.com^` | Block subdomain pattern |
 | Hosts entry | `0.0.0.0 example.com` | Block via hosts format |
 
@@ -148,10 +148,16 @@ Those tests assert that:
 | `max_states` | `200000` | Maximum DFA states (limits memory) |
 | `compile_timeout` | `30s` | Maximum compile duration |
 | `ttl` | `3600` | TTL for blocked responses (nullip) |
+| `debug` | `false` | Log per-query match details (list, name, rule source, pattern) |
+| `invert_whitelist` | `false` | Use `\|\|domain^` instead of `@@\|\|domain^` for whitelist entries |
 
 ### Configuration Notes
 
 - At least one of `whitelist_dir` or `blacklist_dir` must be configured.
+- Whitelist and blacklist files use the same filter syntax. The `@@` exception prefix controls which rules are compiled for each directory:
+  - **Blacklist directories** always exclude `@@`-prefixed rules. Downloaded AdGuard and EasyList files work without conversion — exception rules embedded in those lists are automatically skipped.
+  - **Whitelist directories** by default compile only `@@`-prefixed rules (AdGuard semantics: `@@` = allow). Write `@@||safe.example.com^` to whitelist a domain.
+  - With `invert_whitelist`, whitelist directories compile non-`@@` rules instead, so you can write `||safe.example.com^` to whitelist a domain.
 - Startup stays fail-open if configured directories are unreadable, empty, or contain only unsupported rules.
 - Every initial load and hot-reload writes a detailed compile summary to the CoreDNS log, including directory, outcome, rule count, state count, duration, and any error.
 - `action nxdomain` returns NXDOMAIN for blocked queries.
@@ -161,6 +167,7 @@ Those tests assert that:
 - `nullip6` configures the IPv6 sinkhole address.
 - `ttl` is only relevant for `nullip` answers.
 - `debounce`, `max_states`, and `compile_timeout` are operational safeguards for large or volatile filter sets.
+- `debug` enables per-query log lines showing the matching list (whitelist or blacklist), the queried name, the source file and line number, and the original rule pattern. Useful for verifying that rules behave as expected. The output appears at the `[INFO]` level in the CoreDNS log.
 
 ## Query Flow
 

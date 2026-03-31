@@ -401,3 +401,139 @@ func TestOnCompileCallback(t *testing.T) {
 	}
 	mu.Unlock()
 }
+
+// TestBlacklistExcludesExceptionRules verifies that operators get correct
+// AdGuard-compatible blocking when downloaded filter lists contain @@ exception
+// rules mixed with blocking rules.
+//
+// This test covers the watcher rule filtering for blacklist directories.
+//
+// It writes a blacklist file with both @@ (exception) and || (blocking) rules
+// and asserts that only the blocking rule is compiled into the DFA.
+func TestBlacklistExcludesExceptionRules(t *testing.T) {
+	blDir := t.TempDir()
+	content := "||ads.example.com^\n@@||safe.example.com^\n"
+	if err := os.WriteFile(filepath.Join(blDir, "mixed.txt"), []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	var lastBL Snapshot
+	stop, err := Start(&Config{
+		BlacklistDir: blDir,
+		Debounce:     50 * time.Millisecond,
+		Logger:       &testLogger{},
+		OnUpdate: func(_ Snapshot, bl Snapshot) {
+			lastBL = bl
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	t.Cleanup(func() { _ = stop() })
+
+	if lastBL.DFA == nil {
+		t.Fatal("expected blacklist DFA")
+	}
+	if lastBL.RuleCount != 1 {
+		t.Errorf("RuleCount = %d, want 1 (only non-@@ rule)", lastBL.RuleCount)
+	}
+	matched, _ := lastBL.DFA.Match("ads.example.com")
+	if !matched {
+		t.Error("expected blacklist to match ads.example.com")
+	}
+	matched, _ = lastBL.DFA.Match("safe.example.com")
+	if matched {
+		t.Error("expected blacklist NOT to match safe.example.com (@@-filtered)")
+	}
+}
+
+// TestWhitelistDefaultKeepsExceptionRules verifies that the default whitelist
+// mode compiles only @@ (exception/allow) rules into the whitelist DFA,
+// following AdGuard semantics.
+//
+// This test covers the watcher rule filtering for whitelist directories with
+// InvertWhitelist=false.
+//
+// It writes a whitelist file with @@ rules and asserts those are compiled.
+func TestWhitelistDefaultKeepsExceptionRules(t *testing.T) {
+	wlDir := t.TempDir()
+	content := "@@||safe.example.com^\n||other.example.com^\n"
+	if err := os.WriteFile(filepath.Join(wlDir, "allow.txt"), []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	var lastWL Snapshot
+	stop, err := Start(&Config{
+		WhitelistDir: wlDir,
+		Debounce:     50 * time.Millisecond,
+		Logger:       &testLogger{},
+		OnUpdate: func(wl Snapshot, _ Snapshot) {
+			lastWL = wl
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	t.Cleanup(func() { _ = stop() })
+
+	if lastWL.DFA == nil {
+		t.Fatal("expected whitelist DFA")
+	}
+	if lastWL.RuleCount != 1 {
+		t.Errorf("RuleCount = %d, want 1 (only @@-rule)", lastWL.RuleCount)
+	}
+	matched, _ := lastWL.DFA.Match("safe.example.com")
+	if !matched {
+		t.Error("expected whitelist to match safe.example.com")
+	}
+	matched, _ = lastWL.DFA.Match("other.example.com")
+	if matched {
+		t.Error("expected whitelist NOT to match other.example.com (non-@@ filtered out)")
+	}
+}
+
+// TestWhitelistInvertedKeepsNonExceptionRules verifies that the invert_whitelist
+// mode compiles ||domain^ rules (non-@@) into the whitelist DFA.
+//
+// This test covers the watcher rule filtering for whitelist directories with
+// InvertWhitelist=true.
+//
+// It writes a whitelist file with both @@ and || rules and asserts that only
+// the non-@@ rules are compiled.
+func TestWhitelistInvertedKeepsNonExceptionRules(t *testing.T) {
+	wlDir := t.TempDir()
+	content := "||safe.example.com^\n@@||ignored.example.com^\n"
+	if err := os.WriteFile(filepath.Join(wlDir, "allow.txt"), []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	var lastWL Snapshot
+	stop, err := Start(&Config{
+		WhitelistDir:    wlDir,
+		Debounce:        50 * time.Millisecond,
+		Logger:          &testLogger{},
+		InvertWhitelist: true,
+		OnUpdate: func(wl Snapshot, _ Snapshot) {
+			lastWL = wl
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	t.Cleanup(func() { _ = stop() })
+
+	if lastWL.DFA == nil {
+		t.Fatal("expected whitelist DFA")
+	}
+	if lastWL.RuleCount != 1 {
+		t.Errorf("RuleCount = %d, want 1 (only non-@@ rule)", lastWL.RuleCount)
+	}
+	matched, _ := lastWL.DFA.Match("safe.example.com")
+	if !matched {
+		t.Error("expected inverted whitelist to match safe.example.com")
+	}
+	matched, _ = lastWL.DFA.Match("ignored.example.com")
+	if matched {
+		t.Error("expected inverted whitelist NOT to match ignored.example.com (@@-filtered)")
+	}
+}

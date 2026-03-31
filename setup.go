@@ -150,6 +150,10 @@ func parseDirective(c *caddy.Controller, cfg *Config) error {
 			return err
 		}
 		cfg.Action.TTL = value
+	case "debug":
+		cfg.Debug = true
+	case "invert_whitelist":
+		cfg.InvertWhitelist = true
 	default:
 		return fmt.Errorf("unknown directive %q", c.Val())
 	}

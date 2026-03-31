@@ -18,6 +18,7 @@ import (
 
 	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
 	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
 func main() {
@@ -62,7 +63,7 @@ Flags (all commands):
   --blacklist DIR    Blacklist filter directory
 
 Match-specific:
-  --name DOMAIN      Domain name to check
+  --invert-whitelist   Use ||domain^ (not @@) for whitelist entries
 
 Dump-dot-specific:
   --out WL.dot,BL.dot   Output file paths (default: whitelist.dot,blacklist.dot)`)
@@ -90,6 +91,7 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 	wlDir := fs.String("whitelist", "", "whitelist directory")
 	blDir := fs.String("blacklist", "", "blacklist directory")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
+	invertWL := fs.Bool("invert-whitelist", false, "use ||domain^ (not @@) for whitelist entries")
 	if err := fs.Parse(args); err != nil {
 		writef(stderr, "validate parse error: %v\n", err)
 		return 1
@@ -118,6 +120,8 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 
+		rules = filterRulesForList(rules, item.label, *invertWL)
+
 		writef(stdout, "[%s] parsed %d rules\n", item.label, len(rules))
 		if len(rules) == 0 {
 			continue
@@ -144,6 +148,7 @@ func cmdMatch(args []string, stdout, stderr io.Writer) int {
 	blDir := fs.String("blacklist", "", "blacklist directory")
 	name := fs.String("name", "", "domain name to check")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
+	invertWL := fs.Bool("invert-whitelist", false, "use ||domain^ (not @@) for whitelist entries")
 	if err := fs.Parse(args); err != nil {
 		writef(stderr, "match parse error: %v\n", err)
 		return 1
@@ -157,56 +162,85 @@ func cmdMatch(args []string, stdout, stderr io.Writer) int {
 	logger := cliLogger{stderr: stderr}
 	normalized := normalizeDomain(*name)
 
-	var wlDFA, blDFA *automaton.DFA
-
-	if *wlDir != "" {
-		rules, err := blockloader.LoadDirectory(*wlDir, &logger)
-		if err != nil {
-			writef(stderr, "whitelist load error: %v\n", err)
-		} else if len(rules) > 0 {
-			dfa, err := automaton.CompileRules(rules, automaton.CompileOptions{MaxStates: *maxStates})
-			if err != nil {
-				writef(stderr, "whitelist compile error: %v\n", err)
-			} else {
-				wlDFA = dfa
-			}
-		}
+	type listInfo struct {
+		dfa      *automaton.DFA
+		sources  []string
+		patterns []string
 	}
 
-	if *blDir != "" {
-		rules, err := blockloader.LoadDirectory(*blDir, &logger)
-		if err != nil {
-			writef(stderr, "blacklist load error: %v\n", err)
-		} else if len(rules) > 0 {
-			dfa, err := automaton.CompileRules(rules, automaton.CompileOptions{MaxStates: *maxStates})
-			if err != nil {
-				writef(stderr, "blacklist compile error: %v\n", err)
-			} else {
-				blDFA = dfa
-			}
+	loadList := func(dir, label string) listInfo {
+		if dir == "" {
+			return listInfo{}
 		}
+		rules, err := blockloader.LoadDirectory(dir, &logger)
+		if err != nil {
+			writef(stderr, "load error: %v\n", err)
+			return listInfo{}
+		}
+		rules = filterRulesForList(rules, label, *invertWL)
+		if len(rules) == 0 {
+			return listInfo{}
+		}
+		dfa, err := automaton.CompileRules(rules, automaton.CompileOptions{MaxStates: *maxStates})
+		if err != nil {
+			writef(stderr, "compile error: %v\n", err)
+			return listInfo{}
+		}
+		sources := make([]string, len(rules))
+		patterns := make([]string, len(rules))
+		for i, r := range rules {
+			sources[i] = r.Source
+			patterns[i] = r.Pattern
+		}
+		return listInfo{dfa: dfa, sources: sources, patterns: patterns}
 	}
+
+	wl := loadList(*wlDir, "whitelist")
+	bl := loadList(*blDir, "blacklist")
 
 	writef(stdout, "checking: %s\n", normalized)
 
-	if wlDFA != nil {
-		matched, ruleIDs := wlDFA.Match(normalized)
+	if wl.dfa != nil {
+		matched, ruleIDs := wl.dfa.Match(normalized)
 		if matched {
-			writef(stdout, "result: WHITELISTED (rules: %v)\n", ruleIDs)
+			writef(stdout, "result: WHITELISTED")
+			writeRuleDetail(stdout, ruleIDs, wl.sources, wl.patterns)
+			writeln(stdout, "")
 			return 0
 		}
 	}
 
-	if blDFA != nil {
-		matched, ruleIDs := blDFA.Match(normalized)
+	if bl.dfa != nil {
+		matched, ruleIDs := bl.dfa.Match(normalized)
 		if matched {
-			writef(stdout, "result: BLACKLISTED (rules: %v)\n", ruleIDs)
+			writef(stdout, "result: BLACKLISTED")
+			writeRuleDetail(stdout, ruleIDs, bl.sources, bl.patterns)
+			writeln(stdout, "")
 			return 1
 		}
 	}
 
 	writeln(stdout, "result: ALLOWED (no match)")
 	return 0
+}
+
+// writeRuleDetail appends rule source and pattern info for the first matching
+// rule to the output line. It shows the basename:line and the original pattern
+// so operators can trace which filter file line caused the decision.
+func writeRuleDetail(w io.Writer, ruleIDs []int, sources, patterns []string) {
+	if len(ruleIDs) == 0 || len(sources) == 0 {
+		return
+	}
+	id := ruleIDs[0]
+	if id < 0 || id >= len(sources) {
+		return
+	}
+	src := shortSource(sources[id])
+	if id < len(patterns) && patterns[id] != "" {
+		writef(w, " rule=%s (%s)", src, patterns[id])
+	} else {
+		writef(w, " rule=%s", src)
+	}
 }
 
 // cmdDumpDot exports compiled DFAs into Graphviz DOT files for inspection.
@@ -295,4 +329,43 @@ func normalizeDomain(name string) string {
 	name = strings.ToLower(name)
 	name = strings.TrimSuffix(name, ".")
 	return name
+}
+
+// shortSource converts a "path/to/dir/list.txt:42" source string to "list.txt:42".
+func shortSource(source string) string {
+	if source == "" {
+		return "unknown"
+	}
+	if idx := strings.LastIndex(source, ":"); idx > 0 {
+		return filepath.Base(source[:idx]) + source[idx:]
+	}
+	return filepath.Base(source)
+}
+
+// filterRulesForList selects the subset of rules appropriate for the given list
+// label. Blacklist directories exclude @@ (exception) rules; whitelist
+// directories keep only @@ rules by default or non-@@ rules when inverted.
+func filterRulesForList(rules []filterlist.Rule, label string, invertWhitelist bool) []filterlist.Rule {
+	switch label {
+	case "blacklist":
+		return keepRules(rules, false)
+	case "whitelist":
+		if invertWhitelist {
+			return keepRules(rules, false)
+		}
+		return keepRules(rules, true)
+	default:
+		return rules
+	}
+}
+
+// keepRules returns the subset of rules whose IsAllow field equals wantAllow.
+func keepRules(rules []filterlist.Rule, wantAllow bool) []filterlist.Rule {
+	filtered := make([]filterlist.Rule, 0, len(rules))
+	for _, r := range rules {
+		if r.IsAllow == wantAllow {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }

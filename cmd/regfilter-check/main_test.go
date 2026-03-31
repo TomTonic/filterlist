@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
 func writeFilterFile(t *testing.T, dir, name, content string) {
@@ -77,7 +79,7 @@ func TestRunValidateCompilesRules(t *testing.T) {
 func TestRunMatchReportsPolicyDecision(t *testing.T) {
 	wlDir := t.TempDir()
 	blDir := t.TempDir()
-	writeFilterFile(t, wlDir, "allow.txt", "||safe.example.com^\n")
+	writeFilterFile(t, wlDir, "allow.txt", "@@||safe.example.com^\n")
 	writeFilterFile(t, blDir, "deny.txt", "||ads.example.com^\n")
 
 	tests := []struct {
@@ -90,13 +92,13 @@ func TestRunMatchReportsPolicyDecision(t *testing.T) {
 			name:      "whitelisted",
 			args:      []string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--name", "safe.example.com"},
 			wantCode:  0,
-			wantToken: "WHITELISTED",
+			wantToken: "WHITELISTED rule=allow.txt:1 (safe.example.com)",
 		},
 		{
 			name:      "blacklisted",
 			args:      []string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--name", "ads.example.com"},
 			wantCode:  1,
-			wantToken: "BLACKLISTED",
+			wantToken: "BLACKLISTED rule=deny.txt:1 (ads.example.com)",
 		},
 		{
 			name:      "allowed",
@@ -174,5 +176,142 @@ func TestNormalizeDomain(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("normalizeDomain(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+// TestShortSource verifies that operators see concise rule references in CLI
+// match output by asserting that shortSource strips directory prefixes and
+// preserves the line number suffix.
+func TestShortSource(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/var/dns/blacklist/ads.txt:42", "ads.txt:42"},
+		{"rules.txt:1", "rules.txt:1"},
+		{"/a/b/c/list.hosts:100", "list.hosts:100"},
+		{"", "unknown"},
+		{"nolineinfo", "nolineinfo"},
+	}
+	for _, tt := range tests {
+		got := shortSource(tt.input)
+		if got != tt.want {
+			t.Errorf("shortSource(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// TestWriteRuleDetail verifies that the CLI match command shows the rule source
+// and pattern for matched queries by asserting that writeRuleDetail formats the
+// first matching rule ID into a human-readable reference.
+func TestWriteRuleDetail(t *testing.T) {
+	tests := []struct {
+		name     string
+		ruleIDs  []int
+		sources  []string
+		patterns []string
+		want     string
+	}{
+		{
+			name:     "shows source and pattern",
+			ruleIDs:  []int{0},
+			sources:  []string{"/etc/bl/deny.txt:3"},
+			patterns: []string{"ads.example.com"},
+			want:     " rule=deny.txt:3 (ads.example.com)",
+		},
+		{
+			name:     "shows source without pattern",
+			ruleIDs:  []int{0},
+			sources:  []string{"/etc/bl/deny.txt:3"},
+			patterns: []string{""},
+			want:     " rule=deny.txt:3",
+		},
+		{
+			name:    "empty ruleIDs produces no output",
+			ruleIDs: nil,
+			sources: []string{"/etc/bl/deny.txt:3"},
+			want:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			writeRuleDetail(&buf, tt.ruleIDs, tt.sources, tt.patterns)
+			if got := buf.String(); got != tt.want {
+				t.Errorf("writeRuleDetail() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFilterRulesForList verifies that the CLI uses the same @@ filtering
+// semantics as the watcher: blacklist directories exclude exception rules,
+// and whitelist directories select only @@ rules by default or non-@@ rules
+// when inverted.
+//
+// This test covers the filterRulesForList and keepRules helpers.
+//
+// It asserts each combination of label and invert flag against a mixed set
+// of allow and deny rules.
+func TestFilterRulesForList(t *testing.T) {
+	rules := []filterlist.Rule{
+		{Pattern: "block.example.com", IsAllow: false},
+		{Pattern: "allow.example.com", IsAllow: true},
+	}
+
+	tests := []struct {
+		name    string
+		label   string
+		invert  bool
+		wantLen int
+		wantPat string
+	}{
+		{"blacklist keeps non-@@ rules", "blacklist", false, 1, "block.example.com"},
+		{"whitelist default keeps @@ rules", "whitelist", false, 1, "allow.example.com"},
+		{"whitelist inverted keeps non-@@ rules", "whitelist", true, 1, "block.example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterRulesForList(rules, tt.label, tt.invert)
+			if len(got) != tt.wantLen {
+				t.Fatalf("filterRulesForList len = %d, want %d", len(got), tt.wantLen)
+			}
+			if got[0].Pattern != tt.wantPat {
+				t.Fatalf("filterRulesForList[0].Pattern = %q, want %q", got[0].Pattern, tt.wantPat)
+			}
+		})
+	}
+}
+
+// TestRunMatchInvertWhitelist verifies that the --invert-whitelist flag changes
+// which rules from the whitelist directory are compiled by asserting that
+// ||domain^ entries are used for whitelisting when the flag is set.
+func TestRunMatchInvertWhitelist(t *testing.T) {
+	wlDir := t.TempDir()
+	blDir := t.TempDir()
+	writeFilterFile(t, wlDir, "allow.txt", "||safe.example.com^\n")
+	writeFilterFile(t, blDir, "deny.txt", "||safe.example.com^\n||ads.example.com^\n")
+
+	// Without --invert-whitelist: ||safe.example.com^ has IsAllow=false, so it
+	// is filtered out of the whitelist. safe.example.com ends up BLACKLISTED.
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--name", "safe.example.com"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("without invert: code = %d, want 1 (BLACKLISTED)", code)
+	}
+	if !strings.Contains(stdout.String(), "BLACKLISTED") {
+		t.Fatalf("without invert: stdout = %q, want BLACKLISTED", stdout.String())
+	}
+
+	// With --invert-whitelist: ||safe.example.com^ is now a whitelist entry.
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--invert-whitelist", "--name", "safe.example.com"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("with invert: code = %d, want 0 (WHITELISTED)", code)
+	}
+	if !strings.Contains(stdout.String(), "WHITELISTED") {
+		t.Fatalf("with invert: stdout = %q, want WHITELISTED", stdout.String())
 	}
 }

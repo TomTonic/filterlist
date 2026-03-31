@@ -16,6 +16,7 @@ import (
 
 	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
 	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
+	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
 // Logger is a minimal logging interface.
@@ -39,15 +40,16 @@ func (nopLogger) Errorf(string, ...interface{}) {}
 
 // Config configures the watcher.
 type Config struct {
-	WhitelistDir   string
-	BlacklistDir   string
-	Debounce       time.Duration
-	Logger         Logger
-	OnUpdate       func(whitelist Snapshot, blacklist Snapshot)
-	OnCompile      func(label string, duration time.Duration)
-	OnError        func(label string, err error)
-	MaxCompileTime time.Duration
-	MaxStates      int
+	WhitelistDir    string
+	BlacklistDir    string
+	Debounce        time.Duration
+	Logger          Logger
+	OnUpdate        func(whitelist Snapshot, blacklist Snapshot)
+	OnCompile       func(label string, duration time.Duration)
+	OnError         func(label string, err error)
+	MaxCompileTime  time.Duration
+	MaxStates       int
+	InvertWhitelist bool
 }
 
 // Snapshot describes one compiled filter set state.
@@ -55,6 +57,8 @@ type Snapshot struct {
 	DFA        *automaton.DFA
 	RuleCount  int
 	StateCount int
+	Sources    []string // rule source strings indexed by rule ID
+	Patterns   []string // rule pattern strings indexed by rule ID
 }
 
 // compileStatus classifies the outcome of one load-and-compile attempt.
@@ -318,6 +322,8 @@ func (w *dirWatcher) compileDir(dir, label string) (Snapshot, compileReport) {
 		return Snapshot{}, report
 	}
 
+	rules = filterRulesForList(rules, label, w.cfg.InvertWhitelist)
+
 	if len(rules) == 0 {
 		report.Status = compileStatusEmpty
 		report.Duration = time.Since(started)
@@ -349,7 +355,7 @@ func (w *dirWatcher) compileDir(dir, label string) (Snapshot, compileReport) {
 		w.cfg.OnCompile(label, compileElapsed)
 	}
 
-	return Snapshot{DFA: dfa, RuleCount: len(rules), StateCount: dfa.StateCount()}, report
+	return Snapshot{DFA: dfa, RuleCount: len(rules), StateCount: dfa.StateCount(), Sources: ruleSources(rules), Patterns: rulePatterns(rules)}, report
 }
 
 // logCompileReport emits one structured summary line for every compile attempt.
@@ -394,6 +400,57 @@ func isUnder(path, dir string) bool {
 	}
 
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// filterRulesForList selects the rules that belong in the compiled DFA for
+// the given list label. Blacklist directories always exclude exception rules
+// (@@-prefixed) so downloaded AdGuard and EasyList files work without
+// conversion. Whitelist directories use the @@-prefixed rules by default
+// (AdGuard semantics: @@ = allow); when invertWhitelist is true, non-@@
+// rules are used instead (simpler ||domain^ syntax).
+func filterRulesForList(rules []filterlist.Rule, label string, invertWhitelist bool) []filterlist.Rule {
+	switch label {
+	case "blacklist":
+		return keepRules(rules, false)
+	case "whitelist":
+		if invertWhitelist {
+			return keepRules(rules, false)
+		}
+		return keepRules(rules, true)
+	default:
+		return rules
+	}
+}
+
+// keepRules returns the subset of rules whose IsAllow field equals wantAllow.
+func keepRules(rules []filterlist.Rule, wantAllow bool) []filterlist.Rule {
+	filtered := make([]filterlist.Rule, 0, len(rules))
+	for _, r := range rules {
+		if r.IsAllow == wantAllow {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
+}
+
+// ruleSources extracts the Source strings from rules so callers can map
+// DFA rule IDs back to file and line information for debug output.
+func ruleSources(rules []filterlist.Rule) []string {
+	sources := make([]string, len(rules))
+	for i, r := range rules {
+		sources[i] = r.Source
+	}
+	return sources
+}
+
+// rulePatterns extracts the Pattern strings from rules so callers can show
+// the original filter expression alongside the source location in debug output.
+func rulePatterns(rules []filterlist.Rule) []string {
+	patterns := make([]string, len(rules))
+	for i, r := range rules {
+		patterns[i] = r.Pattern
+	}
+	return patterns
 }
 
 // filterlistLogger adapts our Logger to filterlist.Logger.

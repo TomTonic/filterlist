@@ -134,3 +134,67 @@ func TestParseConfigRejectsNonPositiveDurations(t *testing.T) {
 		})
 	}
 }
+
+// TestParseConfigDebugDirective verifies that operators can enable per-query
+// debug output by adding the debug keyword to the regfilter Corefile block.
+//
+// This test covers the plugin Corefile parsing path for the debug directive.
+//
+// It asserts that debug=false by default, and debug=true when the keyword is
+// present.
+func TestParseConfigDebugDirective(t *testing.T) {
+	// Without debug
+	c := caddy.NewTestController("dns", `regfilter { blacklist_dir /tmp/bl }`)
+	cfg, err := parseConfig(c)
+	if err != nil {
+		t.Fatalf("parseConfig error: %v", err)
+	}
+	if cfg.Debug {
+		t.Error("expected Debug=false by default")
+	}
+
+	// With debug
+	c = caddy.NewTestController("dns", `regfilter {
+		blacklist_dir /tmp/bl
+		debug
+	}`)
+	cfg, err = parseConfig(c)
+	if err != nil {
+		t.Fatalf("parseConfig error: %v", err)
+	}
+	if !cfg.Debug {
+		t.Error("expected Debug=true when debug directive is present")
+	}
+}
+
+// TestParseConfigInvertWhitelistDirective verifies that operators can switch
+// whitelist rule selection to use ||domain^ syntax instead of @@ by adding the
+// invert_whitelist keyword to the regfilter Corefile block.
+//
+// This test covers the plugin Corefile parsing path for the invert_whitelist
+// directive.
+//
+// It asserts that InvertWhitelist is false by default and true when the keyword
+// is present.
+func TestParseConfigInvertWhitelistDirective(t *testing.T) {
+	c := caddy.NewTestController("dns", `regfilter { blacklist_dir /tmp/bl }`)
+	cfg, err := parseConfig(c)
+	if err != nil {
+		t.Fatalf("parseConfig error: %v", err)
+	}
+	if cfg.InvertWhitelist {
+		t.Error("expected InvertWhitelist=false by default")
+	}
+
+	c = caddy.NewTestController("dns", `regfilter {
+		blacklist_dir /tmp/bl
+		invert_whitelist
+	}`)
+	cfg, err = parseConfig(c)
+	if err != nil {
+		t.Fatalf("parseConfig error: %v", err)
+	}
+	if !cfg.InvertWhitelist {
+		t.Error("expected InvertWhitelist=true when directive is present")
+	}
+}

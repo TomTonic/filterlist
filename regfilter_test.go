@@ -75,6 +75,23 @@ func buildDFA(t *testing.T, patterns []string) *automaton.DFA {
 	return dfa
 }
 
+// buildDFAWithSources compiles patterns and returns the DFA, source strings,
+// and pattern strings for use in debug-mode tests.
+func buildDFAWithSources(t *testing.T, rules []filterlist.Rule) (*automaton.DFA, []string, []string) {
+	t.Helper()
+	dfa, err := automaton.CompileRules(rules, automaton.CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := make([]string, len(rules))
+	patterns := make([]string, len(rules))
+	for i, r := range rules {
+		sources[i] = r.Source
+		patterns[i] = r.Pattern
+	}
+	return dfa, sources, patterns
+}
+
 func makeQuery(name string, qtype uint16) *dns.Msg {
 	m := new(dns.Msg)
 	m.SetQuestion(dns.Fqdn(name), qtype)
@@ -584,4 +601,127 @@ func TestPluginLoggerForwarders(_ *testing.T) {
 	logger.Warnf("warn %s", "value")
 	logger.Infof("info %s", "value")
 	logger.Errorf("error %s", "value")
+}
+
+// TestShortSource verifies that operators see concise rule references in debug
+// output by asserting that shortSource strips directory prefixes and preserves
+// the line number suffix.
+func TestShortSource(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/var/dns/blacklist/ads.txt:42", "ads.txt:42"},
+		{"rules.txt:1", "rules.txt:1"},
+		{"/a/b/c/list.hosts:100", "list.hosts:100"},
+		{"", "unknown"},
+		{"nolineinfo", "nolineinfo"},
+	}
+	for _, tt := range tests {
+		got := shortSource(tt.input)
+		if got != tt.want {
+			t.Errorf("shortSource(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// TestServeDNSDebugBlacklistMatch verifies that operators see per-query debug
+// output identifying the matching blacklist rule when the debug directive is
+// active.
+//
+// This test covers the debug logging path in ServeDNS for blacklist hits.
+//
+// It enables debug mode, sets up a blacklist DFA with source information, and
+// asserts that a blocked query triggers the respondBlocked path (NXDOMAIN)
+// without errors. The actual log output goes to CoreDNS's logger and is not
+// captured here; the test verifies that debug mode does not break the match.
+func TestServeDNSDebugBlacklistMatch(t *testing.T) {
+	next := &mockNextHandler{}
+	rf := &RegFilter{
+		Next: next,
+		Config: Config{
+			Action: ActionConfig{Mode: "nxdomain"},
+			Debug:  true,
+		},
+	}
+	dfa, sources, patterns := buildDFAWithSources(t, []filterlist.Rule{
+		{Pattern: "ads.example.com", Source: "/etc/coredns/blacklist/deny.txt:7"},
+	})
+	rf.SetBlacklist(dfa)
+	rf.blSources.Store(sources)
+	rf.blPatterns.Store(patterns)
+
+	w := newMockWriter()
+	r := makeQuery("ads.example.com", dns.TypeA)
+	code, err := rf.ServeDNS(context.Background(), w, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != dns.RcodeNameError {
+		t.Errorf("expected NXDOMAIN, got %d", code)
+	}
+}
+
+// TestServeDNSDebugWhitelistMatch verifies that operators see per-query debug
+// output identifying the matching whitelist rule when the debug directive is
+// active.
+//
+// This test covers the debug logging path in ServeDNS for whitelist hits.
+//
+// It sets up a whitelist DFA with source info and asserts that a matched query
+// is forwarded to the next handler.
+func TestServeDNSDebugWhitelistMatch(t *testing.T) {
+	next := &mockNextHandler{}
+	rf := &RegFilter{
+		Next: next,
+		Config: Config{
+			Action: ActionConfig{Mode: "nxdomain"},
+			Debug:  true,
+		},
+	}
+	dfa, sources, patterns := buildDFAWithSources(t, []filterlist.Rule{
+		{Pattern: "safe.example.com", Source: "/etc/coredns/whitelist/allow.txt:3"},
+	})
+	rf.SetWhitelist(dfa)
+	rf.wlSources.Store(sources)
+	rf.wlPatterns.Store(patterns)
+
+	w := newMockWriter()
+	r := makeQuery("safe.example.com", dns.TypeA)
+	_, err := rf.ServeDNS(context.Background(), w, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !next.called {
+		t.Error("expected next handler to be called (whitelisted)")
+	}
+}
+
+// TestServeDNSDebugNoMatch verifies that operators see a "no match" debug line
+// when neither whitelist nor blacklist match the queried name.
+//
+// This test covers the debug logging path in ServeDNS for unmatched queries.
+//
+// It enables debug mode, sets up a blacklist that does not contain the queried
+// domain, and asserts that the query is forwarded to the next handler.
+func TestServeDNSDebugNoMatch(t *testing.T) {
+	next := &mockNextHandler{}
+	rf := &RegFilter{
+		Next: next,
+		Config: Config{
+			Action: ActionConfig{Mode: "nxdomain"},
+			Debug:  true,
+		},
+	}
+	rf.SetBlacklist(buildDFA(t, []string{"ads.example.com"}))
+
+	w := newMockWriter()
+	r := makeQuery("clean.example.com", dns.TypeA)
+	_, err := rf.ServeDNS(context.Background(), w, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !next.called {
+		t.Error("expected next handler for non-matched query")
+	}
 }
