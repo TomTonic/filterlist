@@ -270,6 +270,11 @@ type intermediateDFA struct {
 	states []intermediateDFAState
 }
 
+type subsetWorkItem struct {
+	id     int
+	states []int
+}
+
 func newIntermediateDFAState(accept bool, ruleIDs []uint32) intermediateDFAState {
 	s := intermediateDFAState{
 		accept:  accept,
@@ -446,27 +451,26 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*intermediat
 	accept, ruleIDs := computeAccept(n, startClosure)
 	md.states = append(md.states, newIntermediateDFAState(accept, ruleIDs))
 
-	worklist := [][]int{startClosure}
+	worklist := []subsetWorkItem{{id: 0, states: startClosure}}
+	movedScratch := make([]int, 0)
 
 	for len(worklist) > 0 {
 		if !deadline.IsZero() && time.Now().After(deadline) {
 			return nil, errors.New("automaton: subset construction timeout")
 		}
 
-		current := worklist[0]
+		currentItem := worklist[0]
 		worklist = worklist[1:]
-		currentKey, err := makeSetKey(current)
-		if err != nil {
-			return nil, err
-		}
-		currentID := stateMap[currentKey]
+		current := currentItem.states
+		currentID := currentItem.id
 
 		for _, c := range dnsAlphabet {
-			var moved []int
+			moved := movedScratch[:0]
 			for _, s := range current {
 				moved = append(moved, n.states[s].trans[c]...)
 				moved = append(moved, n.states[s].anyDNS...)
 			}
+			movedScratch = moved[:0]
 			if len(moved) == 0 {
 				continue
 			}
@@ -484,7 +488,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*intermediat
 				stateMap[key] = newID
 				a, rids := computeAccept(n, closure)
 				md.states = append(md.states, newIntermediateDFAState(a, rids))
-				worklist = append(worklist, closure)
+				worklist = append(worklist, subsetWorkItem{id: newID, states: closure})
 			}
 
 			md.states[currentID].trans[RuneToIndex(c)] = stateMap[key]
