@@ -25,6 +25,7 @@ type Logger interface {
 	Errorf(format string, args ...interface{})
 }
 
+// nopLogger discards all log output when callers leave Logger nil.
 type nopLogger struct{}
 
 // Warnf discards watcher warnings when no logger is configured.
@@ -59,6 +60,7 @@ type Snapshot struct {
 // compileStatus classifies the outcome of one load-and-compile attempt.
 type compileStatus string
 
+// Possible compile outcomes.
 const (
 	compileStatusDisabled     compileStatus = "disabled"
 	compileStatusEmpty        compileStatus = "empty"
@@ -67,6 +69,7 @@ const (
 	compileStatusCompileError compileStatus = "compile_error"
 )
 
+// compileReport captures metrics and diagnostics for a single compile run.
 type compileReport struct {
 	Label      string
 	Dir        string
@@ -162,6 +165,7 @@ func Start(cfg *Config) (stop func() error, err error) {
 	return w.stop, nil
 }
 
+// dirWatcher holds runtime state for one pair of watched directories.
 type dirWatcher struct {
 	cfg    Config
 	ctx    context.Context
@@ -174,6 +178,7 @@ type dirWatcher struct {
 	lastBL Snapshot
 }
 
+// stop cancels the watcher context, closes fsnotify, and waits for the loop to exit.
 func (w *dirWatcher) stop() error {
 	w.cancel()
 	err := w.fsw.Close()
@@ -181,6 +186,7 @@ func (w *dirWatcher) stop() error {
 	return err
 }
 
+// loop runs the debounced event loop until the context is cancelled.
 func (w *dirWatcher) loop() {
 	defer w.wg.Done()
 
@@ -247,6 +253,7 @@ func (w *dirWatcher) loop() {
 	}
 }
 
+// rebuild recompiles one filter direction and publishes the result.
 func (w *dirWatcher) rebuild(which string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

@@ -129,6 +129,7 @@ func NewRegistryWith(reg prometheus.Registerer) *Registry {
 	return r
 }
 
+// registerCounter registers a Counter or reuses an existing one with the same descriptor.
 func registerCounter(reg prometheus.Registerer, collector prometheus.Counter) prometheus.Counter {
 	if err := reg.Register(collector); err != nil {
 		var alreadyRegistered prometheus.AlreadyRegisteredError
@@ -142,6 +143,7 @@ func registerCounter(reg prometheus.Registerer, collector prometheus.Counter) pr
 	return collector
 }
 
+// registerGauge registers a Gauge or reuses an existing one with the same descriptor.
 func registerGauge(reg prometheus.Registerer, collector prometheus.Gauge) prometheus.Gauge {
 	if err := reg.Register(collector); err != nil {
 		var alreadyRegistered prometheus.AlreadyRegisteredError
@@ -155,6 +157,7 @@ func registerGauge(reg prometheus.Registerer, collector prometheus.Gauge) promet
 	return collector
 }
 
+// registerHistogram registers a Histogram or reuses an existing one with the same descriptor.
 func registerHistogram(reg prometheus.Registerer, collector prometheus.Histogram) prometheus.Histogram {
 	if err := reg.Register(collector); err != nil {
 		var alreadyRegistered prometheus.AlreadyRegisteredError
@@ -168,6 +171,7 @@ func registerHistogram(reg prometheus.Registerer, collector prometheus.Histogram
 	return collector
 }
 
+// registerSummaryVec registers a SummaryVec or reuses an existing one with the same descriptor.
 func registerSummaryVec(reg prometheus.Registerer, collector *prometheus.SummaryVec) *prometheus.SummaryVec {
 	if err := reg.Register(collector); err != nil {
 		var alreadyRegistered prometheus.AlreadyRegisteredError

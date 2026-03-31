@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TomTonic/coredns-regfilter/internal/util"
 	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
 )
 
@@ -87,27 +86,32 @@ func IndexToRune(i int) rune {
 
 const epsilon rune = 0 // epsilon transitions use rune 0
 
+// nfaState is one node in the Thompson NFA with labeled transitions.
 type nfaState struct {
 	trans   map[rune][]int // rune -> list of target state IDs
 	accept  bool
 	ruleIDs []int
 }
 
+// nfa holds the complete non-deterministic finite automaton before subset construction.
 type nfa struct {
 	states []nfaState
 	start  int
 }
 
+// newNFA allocates an empty NFA with no states.
 func newNFA() *nfa {
 	return &nfa{}
 }
 
+// addState appends a fresh state and returns its ID.
 func (n *nfa) addState() int {
 	id := len(n.states)
 	n.states = append(n.states, nfaState{trans: make(map[rune][]int)})
 	return id
 }
 
+// addTrans records a labeled transition from one NFA state to another.
 func (n *nfa) addTrans(from int, r rune, to int) {
 	n.states[from].trans[r] = append(n.states[from].trans[r], to)
 }
@@ -130,7 +134,7 @@ func buildPatternNFA(pattern string, ruleID int) (*nfa, error) {
 				n.addTrans(loopState, c, loopState)
 			}
 			current = loopState
-		case util.IsDNSChar(r):
+		case RuneToIndex(r) >= 0:
 			next := n.addState()
 			n.addTrans(current, r, next)
 			current = next
@@ -203,12 +207,14 @@ func epsilonClosure(n *nfa, states []int) []int {
 
 // ---- Map-based DFA (used only during construction and minimization) ----
 
+// mapDFAState is one state in the intermediate map-based DFA.
 type mapDFAState struct {
 	trans   map[rune]int
 	accept  bool
 	ruleIDs []int
 }
 
+// mapDFA is the map-based DFA used during subset construction and Hopcroft minimization.
 type mapDFA struct {
 	start  int
 	states []mapDFAState
@@ -245,6 +251,7 @@ type CompileOptions struct {
 	CompileTimeout time.Duration
 }
 
+// shouldMinimize returns whether Hopcroft minimization is enabled for these options.
 func shouldMinimize(opts CompileOptions) bool {
 	if opts.Minimize == nil {
 		return true // default to minimize
@@ -389,6 +396,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*mapDFA, err
 	return md, nil
 }
 
+// computeAccept derives the accept flag and merged rule IDs for a DFA state set.
 func computeAccept(n *nfa, stateSet []int) (accept bool, ruleIDs []int) {
 	seen := make(map[int]bool)
 	for _, s := range stateSet {
@@ -406,6 +414,7 @@ func computeAccept(n *nfa, stateSet []int) (accept bool, ruleIDs []int) {
 	return accept, ruleIDs
 }
 
+// makeSetKey serializes a sorted state set into a string key for the state map.
 func makeSetKey(states []int) string {
 	var b strings.Builder
 	for i, s := range states {
@@ -419,6 +428,7 @@ func makeSetKey(states []int) string {
 
 // ---- Hopcroft Minimization ----
 
+// hopcroftMinimize merges equivalent states to produce a minimal DFA.
 func hopcroftMinimize(md *mapDFA) *mapDFA {
 	n := len(md.states)
 	if n <= 1 {
@@ -491,6 +501,7 @@ func hopcroftMinimize(md *mapDFA) *mapDFA {
 	return minMD
 }
 
+// splitPartition refines one partition group by transition signature.
 func splitPartition(md *mapDFA, partition, stateToPartition []int) [][]int {
 	if len(partition) <= 1 {
 		return [][]int{partition}
@@ -509,6 +520,7 @@ func splitPartition(md *mapDFA, partition, stateToPartition []int) [][]int {
 	return result
 }
 
+// mapTransitionSig computes a canonical transition fingerprint for partition refinement.
 func mapTransitionSig(md *mapDFA, state int, stateToPartition []int) string {
 	var b strings.Builder
 	for _, c := range dnsAlphabet {
@@ -520,6 +532,7 @@ func mapTransitionSig(md *mapDFA, state int, stateToPartition []int) string {
 	return b.String()
 }
 
+// ruleIDsKey serializes rule IDs into a string key for accept-state partitioning.
 func ruleIDsKey(ids []int) string {
 	var b strings.Builder
 	for i, id := range ids {
@@ -639,6 +652,7 @@ func (d *DFA) DumpDot(w io.Writer) error {
 	return nil
 }
 
+// compactRuneLabel formats a character set into a human-readable DOT edge label.
 func compactRuneLabel(chars []rune) string {
 	if len(chars) == AlphabetSize {
 		return "[dns]"

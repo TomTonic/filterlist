@@ -15,7 +15,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/TomTonic/coredns-regfilter/internal/util"
 	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
 	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
 )
@@ -154,7 +153,7 @@ func cmdMatch(args []string, stdout, stderr io.Writer) int {
 	}
 
 	logger := cliLogger{stderr: stderr, suppressSummary: true}
-	normalized := util.NormalizeDomain(*name)
+	normalized := normalizeDomain(*name)
 
 	var wlDFA, blDFA *automaton.DFA
 
@@ -287,4 +286,11 @@ func writef(w io.Writer, format string, args ...interface{}) {
 // writeln ignores best-effort CLI line write errors.
 func writeln(w io.Writer, text string) {
 	_, _ = fmt.Fprintln(w, text)
+}
+
+// normalizeDomain lowercases a domain name and removes a trailing dot.
+func normalizeDomain(name string) string {
+	name = strings.ToLower(name)
+	name = strings.TrimSuffix(name, ".")
+	return name
 }

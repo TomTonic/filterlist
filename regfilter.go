@@ -232,6 +232,7 @@ func (rf *RegFilter) respondBlocked(w dns.ResponseWriter, r *dns.Msg, qname stri
 	return m.Rcode, nil
 }
 
+// normalizeName lowercases the DNS name and strips the trailing root dot.
 func normalizeName(name string) string {
 	name = strings.ToLower(name)
 	name = strings.TrimSuffix(name, ".")

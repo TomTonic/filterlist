@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// buildInfo captures VCS metadata embedded by the Go toolchain.
 type buildInfo struct {
 	version  string
 	revision string
@@ -12,6 +13,7 @@ type buildInfo struct {
 	modified bool
 }
 
+// readBuildInfo extracts VCS revision, time, and dirty flag from runtime build info.
 func readBuildInfo() buildInfo {
 	bi := buildInfo{version: "(devel)"}
 	info, ok := debug.ReadBuildInfo()

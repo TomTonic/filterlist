@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/TomTonic/coredns-regfilter/internal/util"
+	"golang.org/x/net/idna"
 )
 
 // Rule represents one canonicalized filter entry ready for compilation.
@@ -45,6 +45,7 @@ type Logger interface {
 	Warnf(format string, args ...interface{})
 }
 
+// nopLogger discards warnings when callers pass nil for the Logger parameter.
 type nopLogger struct{}
 
 // Warnf discards parser warnings when callers do not provide a logger.
@@ -165,6 +166,7 @@ func ParseLine(line string) (Rule, error) {
 	return Rule{Pattern: pattern, IsAllow: isAllow}, nil
 }
 
+// errNotHosts signals that a line is not in hosts-file format.
 var errNotHosts = errors.New("not hosts")
 
 // tryParseHosts attempts to parse a hosts-style line (e.g. "0.0.0.0 example.com").
@@ -186,7 +188,7 @@ func tryParseHosts(line string, isAllow bool) (Rule, error) {
 
 	// Convert internationalized domain names (IDN) to Punycode.
 	if needsIDNConversion(domain) {
-		ascii, err := util.ToASCII(domain)
+		ascii, err := toASCII(domain)
 		if err != nil {
 			return Rule{}, errNotHosts
 		}
@@ -202,7 +204,7 @@ func tryParseHosts(line string, isAllow bool) (Rule, error) {
 		return Rule{}, errSkip
 	}
 
-	if !util.IsValidDNSName(domain) {
+	if !isValidDNSName(domain) {
 		return Rule{}, errNotHosts
 	}
 
@@ -249,7 +251,7 @@ func parseAdGuardPattern(s string) (string, error) {
 	// This allows filter lists to use Unicode domains like "münchen.de"
 	// which will be converted to "xn--mnchen-3ya.de" to match DNS queries.
 	if needsIDNConversion(s) {
-		ascii, err := util.ToASCII(s)
+		ascii, err := toASCII(s)
 		if err != nil {
 			return "", fmt.Errorf("IDN conversion failed for %s: %w", truncate(s), err)
 		}
@@ -263,7 +265,7 @@ func parseAdGuardPattern(s string) (string, error) {
 
 	// Validate remaining characters: allow DNS chars + wildcard
 	for _, r := range s {
-		if !util.IsDNSChar(r) && r != '*' {
+		if !isDNSChar(r) && r != '*' {
 			return "", fmt.Errorf("invalid character %q in pattern: %s", r, truncate(s))
 		}
 	}
@@ -297,6 +299,7 @@ func containsUnsupportedModifier(mods string) bool {
 	return false
 }
 
+// containsUnsupportedNonNetworkMarker detects cosmetic and scriptlet rule syntax.
 func containsUnsupportedNonNetworkMarker(line string) bool {
 	markers := []string{
 		"##",
@@ -324,6 +327,7 @@ func containsUnsupportedNonNetworkMarker(line string) bool {
 
 const truncateLimit = 80
 
+// truncate shortens long strings for safe inclusion in log and error messages.
 func truncate(s string) string {
 	if len(s) <= truncateLimit {
 		return s
@@ -340,4 +344,29 @@ func needsIDNConversion(s string) bool {
 		}
 	}
 	return false
+}
+
+// isDNSChar reports whether r belongs to the supported DNS matching alphabet.
+func isDNSChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= '0' && r <= '9') ||
+		r == '-' || r == '.'
+}
+
+// isValidDNSName reports whether name uses only supported DNS pattern characters.
+func isValidDNSName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range strings.ToLower(name) {
+		if !isDNSChar(r) && r != '*' {
+			return false
+		}
+	}
+	return true
+}
+
+// toASCII converts name into its ASCII DNS representation via IDNA lookup.
+func toASCII(name string) (string, error) {
+	return idna.Lookup.ToASCII(name)
 }

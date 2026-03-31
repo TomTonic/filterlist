@@ -18,6 +18,7 @@ func init() {
 	plugin.Register("regfilter", setup)
 }
 
+// setup is the caddy setup function registered for the "regfilter" directive.
 func setup(c *caddy.Controller) error {
 	log.Infof("regfilter %s", readBuildInfo())
 

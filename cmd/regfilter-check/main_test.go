@@ -149,3 +149,30 @@ func TestRunDumpDotWritesOutput(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty output", stderr.String())
 	}
 }
+
+// TestNormalizeDomain verifies that operators get stable lowercase DNS names
+// when domain input passes through the CLI normalization path.
+//
+// This test covers the regfilter-check CLI's domain normalization helper.
+//
+// It asserts that trailing dots are removed and casing is normalized without
+// altering already canonical names.
+func TestNormalizeDomain(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"Example.COM.", "example.com"},
+		{"example.com", "example.com"},
+		{"SUB.Example.Org.", "sub.example.org"},
+		{"", ""},
+		{".", ""},
+		{"A", "a"},
+	}
+	for _, tt := range tests {
+		got := normalizeDomain(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeDomain(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
