@@ -97,6 +97,122 @@ func TestIntegrationBlacklistCompile(t *testing.T) {
 	}
 }
 
+// TestIntegrationBlacklistLiteralAnchoredDomainMatchesSubdomains verifies that
+// blacklist rules written as ||domain^ reject both the exact domain and its
+// subdomains for users in the repository integration flow.
+//
+// This test covers the end-to-end literal blacklist path: blockloader loads an
+// AdGuard-style anchored domain rule, filterlist canonicalizes it, and matcher
+// routes it through the suffix map.
+//
+// It asserts that the parsed ||ads.example.com^ rule blocks ads.example.com and
+// deeper names like sub.ads.example.com while unrelated domains stay allowed.
+func TestIntegrationBlacklistLiteralAnchoredDomainMatchesSubdomains(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "blacklist")
+	logger := &testLogger{}
+
+	rules, err := blockloader.LoadDirectory(dir, logger)
+	if err != nil {
+		t.Fatalf("LoadDirectory error: %v", err)
+	}
+
+	var selected []filterlist.Rule
+	for _, rule := range rules {
+		if rule.IsAllow {
+			continue
+		}
+		if rule.Pattern == "ads.example.com" {
+			selected = append(selected, rule)
+		}
+	}
+	if len(selected) != 1 {
+		t.Fatalf("selected %d literal rules, want 1", len(selected))
+	}
+
+	m, err := matcher.CompileRules(selected, matcher.CompileOptions{})
+	if err != nil {
+		t.Fatalf("CompileRules error: %v", err)
+	}
+	if m.LiteralCount() != 1 {
+		t.Fatalf("LiteralCount = %d, want 1", m.LiteralCount())
+	}
+	if m.StateCount() != 0 {
+		t.Fatalf("StateCount = %d, want 0 for literal-only matcher", m.StateCount())
+	}
+
+	for _, name := range []string{"ads.example.com", "sub.ads.example.com", "deep.sub.ads.example.com"} {
+		matched, _ := m.Match(name)
+		if !matched {
+			t.Errorf("expected literal blacklist to match %q", name)
+		}
+	}
+
+	for _, name := range []string{"example.com", "safe.example.com", "badads.example.com"} {
+		matched, _ := m.Match(name)
+		if matched {
+			t.Errorf("expected literal blacklist not to match %q", name)
+		}
+	}
+}
+
+// TestIntegrationBlacklistWildcardAutomatonMatchesSubdomains verifies that
+// blacklist rules written with wildcards reject matching domains through the
+// automaton path for users in the repository integration flow.
+//
+// This test covers the end-to-end wildcard blacklist path: blockloader loads a
+// wildcard rule, filterlist canonicalizes it, and matcher compiles it into the
+// wildcard DFA.
+//
+// It asserts that the parsed ||*.tracking.example.com^ rule blocks matching
+// subdomains while the bare base domain and unrelated names remain allowed.
+func TestIntegrationBlacklistWildcardAutomatonMatchesSubdomains(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "blacklist")
+	logger := &testLogger{}
+
+	rules, err := blockloader.LoadDirectory(dir, logger)
+	if err != nil {
+		t.Fatalf("LoadDirectory error: %v", err)
+	}
+
+	var selected []filterlist.Rule
+	for _, rule := range rules {
+		if rule.IsAllow {
+			continue
+		}
+		if rule.Pattern == "*.tracking.example.com" {
+			selected = append(selected, rule)
+		}
+	}
+	if len(selected) != 1 {
+		t.Fatalf("selected %d wildcard rules, want 1", len(selected))
+	}
+
+	m, err := matcher.CompileRules(selected, matcher.CompileOptions{})
+	if err != nil {
+		t.Fatalf("CompileRules error: %v", err)
+	}
+	if m.LiteralCount() != 0 {
+		t.Fatalf("LiteralCount = %d, want 0 for wildcard-only matcher", m.LiteralCount())
+	}
+	if m.StateCount() == 0 {
+		t.Fatal("StateCount = 0, want wildcard DFA states")
+	}
+
+	for _, name := range []string{"sub.tracking.example.com", "a.b.tracking.example.com"} {
+		matched, _ := m.Match(name)
+		if !matched {
+			t.Errorf("expected wildcard blacklist to match %q", name)
+		}
+	}
+
+	for _, name := range []string{"tracking.example.com", "safe.example.com", "tracking.example.net"} {
+		matched, _ := m.Match(name)
+		if matched {
+			t.Errorf("expected wildcard blacklist not to match %q", name)
+		}
+	}
+}
+
 // TestIntegrationWhitelistCompile verifies that operators can load a real whitelist directory end-to-end through the repository integration path by asserting that compiled allow rules match trusted domains and exclude unrelated ones.
 func TestIntegrationWhitelistCompile(t *testing.T) {
 	dir := filepath.Join(testdataDir(), "whitelist")
