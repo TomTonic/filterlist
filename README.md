@@ -34,11 +34,47 @@ This project intentionally focuses on DNS-relevant host matching. Browser-only r
 
 ### Build
 
+To use `regfilter` in production, build a custom CoreDNS binary that includes this plugin.
+
+1. Clone the CoreDNS repository and enter it.
+2. Add the `coredns-regfilter` module as a dependency.
+3. Register `regfilter` in `plugin.cfg` **before** `forward` so it is inserted earlier in the CoreDNS plugin chain.
+4. Regenerate the generated plugin glue.
+5. Build CoreDNS.
+
+Example:
+
+```bash
+git clone https://github.com/coredns/coredns.git
+cd coredns
+
+go get github.com/TomTonic/coredns-regfilter@latest
+```
+
+Then edit `plugin.cfg` and add this line before `forward`:
+
+```txt
+regfilter:github.com/TomTonic/coredns-regfilter
+```
+
+The important order is the CoreDNS plugin chain generated from `plugin.cfg`, not the order in which Go downloads modules and not the stanza order in the Corefile. `go get` only makes the module available to the build. `regfilter` must be listed before `forward` in `plugin.cfg` so the generated handler chain reaches `regfilter` before `forward` answers the query.
+
+After updating `plugin.cfg`, regenerate and build:
+
+```bash
+go generate
+go build
+```
+
+This produces a `coredns` binary that includes the `regfilter` plugin.
+
+### Build the CLI Helper
+
 ```bash
 go build -o build/regfilter-check ./cmd/regfilter-check
 ```
 
-This produces the helper CLI at `./build/regfilter-check`. If you are integrating the plugin into a custom CoreDNS build, make sure the `regfilter` plugin is included in that binary.
+This produces the helper CLI at `./build/regfilter-check`. The CLI is optional and useful for validating lists and debugging rule behavior outside of CoreDNS.
 
 ### Corefile Configuration
 
@@ -63,7 +99,6 @@ In that configuration:
 - `prometheus` exposes the metrics described below.
 - `regfilter` evaluates queries before they are forwarded upstream.
 - `whitelist_dir` takes precedence over `blacklist_dir` when the same domain matches both sets.
-- CoreDNS execution order follows the compiled plugin chain, not the stanza order in the Corefile. Include the `regfilter` plugin before the `forward` plugin in the build, or `forward` will answer queries before `regfilter` can inspect or log them.
 
 ### CLI Tool
 

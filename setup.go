@@ -79,7 +79,7 @@ func pluginOrderWarning(handlers []plugin.Handler) string {
 		return ""
 	}
 
-	return "regfilter is ordered after the 'forward' plugin in the CoreDNS plugin chain; forward is typically terminal, so regfilter will not see queries (and not log them). Move regfilter before forward in plugin.cfg/directives order."
+	return "regfilter is ordered after the 'forward' plugin in the generated CoreDNS plugin chain; forward is typically terminal, so regfilter will not see queries (and not log them). The relevant order comes from plugin.cfg, not Corefile stanza order. Move regfilter before forward in plugin.cfg."
 }
 
 // parseConfig reads the regfilter stanza from c and returns a validated Config.
