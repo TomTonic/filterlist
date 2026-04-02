@@ -94,15 +94,45 @@ func IndexToRune(i int) rune {
 const epsilon rune = 0 // epsilon transitions use rune 0
 const noTransitionState = -1
 
+const (
+	nfaFlagHasLiteral uint8 = 1 << iota
+	nfaFlagHasAnyDNS
+	nfaFlagAccept
+)
+
 // nfaState is one node in the Thompson NFA with labeled transitions.
 //
-// Literal and epsilon transitions stay sparse in trans. Wildcard loops use
-// anyDNS so '*' does not have to materialize 38 explicit rune transitions.
+// Thompson construction in this package produces at most one literal outgoing
+// edge per state plus optional epsilon fan-out and an optional anyDNS loop.
+// Storing those paths directly is markedly smaller and more cache-friendly
+// than allocating a general-purpose map for every state.
 type nfaState struct {
-	trans   map[rune][]int // rune -> list of target state IDs
-	anyDNS  []int          // transitions taken for any DNS character
-	accept  bool
-	ruleIDs []uint32
+	literalTo    int32
+	anyDNSTo     int32
+	literalIndex uint8
+	flags        uint8
+	epsilon      []int32
+	ruleIDs      []uint32
+}
+
+func (s *nfaState) hasLiteralTransition() bool {
+	return s.flags&nfaFlagHasLiteral != 0
+}
+
+func (s *nfaState) hasAnyDNSTransition() bool {
+	return s.flags&nfaFlagHasAnyDNS != 0
+}
+
+func (s *nfaState) isAccept() bool {
+	return s.flags&nfaFlagAccept != 0
+}
+
+func (s *nfaState) setAccept(accept bool) {
+	if accept {
+		s.flags |= nfaFlagAccept
+		return
+	}
+	s.flags &^= nfaFlagAccept
 }
 
 // nfa holds the complete non-deterministic finite automaton before subset construction.
@@ -134,18 +164,31 @@ func newClosureScratch(stateCount int) *closureScratch {
 // addState appends a fresh state and returns its ID.
 func (n *nfa) addState() int {
 	id := len(n.states)
-	n.states = append(n.states, nfaState{trans: make(map[rune][]int)})
+	n.states = append(n.states, nfaState{
+		literalTo: int32(noTransitionState),
+		anyDNSTo:  int32(noTransitionState),
+	})
 	return id
 }
 
 // addTrans records a labeled transition from one NFA state to another.
 func (n *nfa) addTrans(from int, r rune, to int) {
-	n.states[from].trans[r] = append(n.states[from].trans[r], to)
+	state := &n.states[from]
+	if r == epsilon {
+		state.epsilon = append(state.epsilon, int32(to))
+		return
+	}
+
+	state.literalIndex = uint8(RuneToIndex(r))
+	state.literalTo = int32(to)
+	state.flags |= nfaFlagHasLiteral
 }
 
 // addAnyDNSTrans records a transition taken for any supported DNS character.
 func (n *nfa) addAnyDNSTrans(from int, to int) {
-	n.states[from].anyDNS = append(n.states[from].anyDNS, to)
+	state := &n.states[from]
+	state.anyDNSTo = int32(to)
+	state.flags |= nfaFlagHasAnyDNS
 }
 
 // buildPatternNFA constructs a Thompson NFA for a single pattern.
@@ -174,7 +217,7 @@ func buildPatternNFA(pattern string, ruleID uint32) (*nfa, error) {
 	}
 
 	// Mark final state as accept
-	n.states[current].accept = true
+	n.states[current].setAccept(true)
 	n.states[current].ruleIDs = []uint32{ruleID}
 	return n, nil
 }
@@ -191,18 +234,22 @@ func combineNFAs(nfas []*nfa) *nfa {
 		// Copy all states
 		for _, s := range sub.states {
 			newID := combined.addState()
-			combined.states[newID].accept = s.accept
+			combined.states[newID].setAccept(s.isAccept())
 			combined.states[newID].ruleIDs = append([]uint32(nil), s.ruleIDs...)
 		}
 		// Rewrite transitions with offset
 		for i, s := range sub.states {
-			for r, targets := range s.trans {
-				for _, t := range targets {
-					combined.addTrans(i+offset, r, t+offset)
-				}
+			for _, t := range s.epsilon {
+				combined.addTrans(i+offset, epsilon, int(t)+offset)
 			}
-			for _, t := range s.anyDNS {
-				combined.addAnyDNSTrans(i+offset, t+offset)
+			if s.hasLiteralTransition() {
+				combined.states[i+offset].literalIndex = s.literalIndex
+				combined.states[i+offset].literalTo = s.literalTo + int32(offset)
+				combined.states[i+offset].flags |= nfaFlagHasLiteral
+			}
+			if s.hasAnyDNSTransition() {
+				combined.states[i+offset].anyDNSTo = s.anyDNSTo + int32(offset)
+				combined.states[i+offset].flags |= nfaFlagHasAnyDNS
 			}
 		}
 		// Epsilon from new start to sub's start
@@ -235,12 +282,12 @@ func epsilonClosure(cs *closureScratch, n *nfa, states []int) []int {
 		s := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		result = append(result, s)
-		for _, t := range n.states[s].trans[epsilon] {
-			if cs.marks[t] == cs.stamp {
+		for _, t := range n.states[s].epsilon {
+			if cs.marks[int(t)] == cs.stamp {
 				continue
 			}
-			cs.marks[t] = cs.stamp
-			stack = append(stack, t)
+			cs.marks[int(t)] = cs.stamp
+			stack = append(stack, int(t))
 		}
 	}
 
@@ -464,11 +511,16 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*intermediat
 		current := currentItem.states
 		currentID := currentItem.id
 
-		for _, c := range dnsAlphabet {
+		for idx := range AlphabetSize {
 			moved := movedScratch[:0]
 			for _, s := range current {
-				moved = append(moved, n.states[s].trans[c]...)
-				moved = append(moved, n.states[s].anyDNS...)
+				state := &n.states[s]
+				if state.hasLiteralTransition() && int(state.literalIndex) == idx {
+					moved = append(moved, int(state.literalTo))
+				}
+				if state.hasAnyDNSTransition() {
+					moved = append(moved, int(state.anyDNSTo))
+				}
 			}
 			movedScratch = moved[:0]
 			if len(moved) == 0 {
@@ -491,7 +543,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*intermediat
 				worklist = append(worklist, subsetWorkItem{id: newID, states: closure})
 			}
 
-			md.states[currentID].trans[RuneToIndex(c)] = stateMap[key]
+			md.states[currentID].trans[idx] = stateMap[key]
 		}
 	}
 
@@ -502,7 +554,7 @@ func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*intermediat
 func computeAccept(n *nfa, stateSet []int) (accept bool, ruleIDs []uint32) {
 	seen := make(map[uint32]bool)
 	for _, s := range stateSet {
-		if n.states[s].accept {
+		if n.states[s].isAccept() {
 			accept = true
 			for _, id := range n.states[s].ruleIDs {
 				if !seen[id] {

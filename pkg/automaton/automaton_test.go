@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
 // ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ func TestBuildPatternNFALiteral(t *testing.T) {
 	// Only the last state should be accepting
 	accepting := 0
 	for _, s := range n.states {
-		if s.accept {
+		if s.isAccept() {
 			accepting++
 		}
 	}
@@ -110,14 +111,32 @@ func TestBuildPatternNFAWildcard(t *testing.T) {
 	}
 	// Wildcard loop state should use the compact DNS-class loop.
 	loop := n.states[1]
-	if len(loop.anyDNS) != 1 || loop.anyDNS[0] != 1 {
-		t.Fatalf("wildcard anyDNS = %v, want [1]", loop.anyDNS)
+	if !loop.hasAnyDNSTransition() || loop.anyDNSTo != 1 {
+		t.Fatalf("wildcard anyDNS target = (%v, %d), want (true, 1)", loop.hasAnyDNSTransition(), loop.anyDNSTo)
 	}
-	if len(loop.trans) != 0 {
-		t.Fatalf("wildcard literal transitions = %d, want 0", len(loop.trans))
+	if loop.hasLiteralTransition() {
+		t.Fatalf("wildcard literal transition unexpectedly present: index %d -> %d", loop.literalIndex, loop.literalTo)
 	}
-	if eps := n.states[0].trans[epsilon]; len(eps) != 1 || eps[0] != 1 {
+	if eps := n.states[0].epsilon; len(eps) != 1 || eps[0] != 1 {
 		t.Fatalf("start epsilon transitions = %v, want [1]", eps)
+	}
+}
+
+// TestNFAStateFitsOneCacheLineOn64Bit verifies that automaton compilation keeps
+// its per-state transition metadata dense enough for cache-friendly scans on
+// mainstream 64-bit deployments.
+//
+// This test covers the internal Thompson NFA state layout.
+//
+// It asserts that nfaState stays within one 64-byte cache line on 64-bit
+// platforms after packing flags and transition metadata.
+func TestNFAStateFitsOneCacheLineOn64Bit(t *testing.T) {
+	if unsafe.Sizeof(uintptr(0)) != 8 {
+		t.Skip("cache-line size assertion is only relevant for 64-bit layouts")
+	}
+
+	if size := unsafe.Sizeof(nfaState{}); size > 64 {
+		t.Fatalf("unsafe.Sizeof(nfaState{}) = %d, want <= 64", size)
 	}
 }
 
@@ -126,6 +145,31 @@ func TestBuildPatternNFAInvalidChar(t *testing.T) {
 	_, err := buildPatternNFA("bad!", 0)
 	if err == nil {
 		t.Error("expected error for invalid character")
+	}
+}
+
+// TestCombineNFAsAddsStartEpsilonFanOut verifies that users can compile many
+// independent rules into one automaton in the automaton package without losing
+// any pattern entry points.
+//
+// This test covers the NFA merge step before subset construction.
+//
+// It asserts that the combined start state fans out via epsilon transitions to
+// each sub-NFA start state.
+func TestCombineNFAsAddsStartEpsilonFanOut(t *testing.T) {
+	first, err := buildPatternNFA("a", 1)
+	if err != nil {
+		t.Fatalf("buildPatternNFA(first): %v", err)
+	}
+	second, err := buildPatternNFA("b", 2)
+	if err != nil {
+		t.Fatalf("buildPatternNFA(second): %v", err)
+	}
+
+	combined := combineNFAs([]*nfa{first, second})
+	eps := combined.states[combined.start].epsilon
+	if len(eps) != 2 {
+		t.Fatalf("combined start epsilon fan-out = %v, want 2 entries", eps)
 	}
 }
 
@@ -236,6 +280,30 @@ func TestMatchLiteral(t *testing.T) {
 		if matched != tt.match {
 			t.Errorf("Match(%q) = %v, want %v", tt.input, matched, tt.match)
 		}
+	}
+}
+
+// TestDFAStateCanHaveMultipleOutgoingEdges verifies that users compiling rules
+// with different next characters still get all matches in the automaton package
+// after subset construction and minimization.
+//
+// This test covers the exported DFA transition layout.
+//
+// It asserts that one DFA state can expose multiple outgoing transitions, which
+// is why the DFA keeps its dense per-alphabet transition array.
+func TestDFAStateCanHaveMultipleOutgoingEdges(t *testing.T) {
+	dfa, err := Compile([]Pattern{{Expr: "a", RuleID: 1}, {Expr: "b", RuleID: 2}}, CompileOptions{})
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+
+	aNext := dfa.start.Trans[RuneToIndex('a')]
+	bNext := dfa.start.Trans[RuneToIndex('b')]
+	if aNext == nil || bNext == nil {
+		t.Fatalf("expected start state to have outgoing edges for both 'a' and 'b'")
+	}
+	if aNext == bNext {
+		t.Fatalf("expected distinct DFA targets for 'a' and 'b'")
 	}
 }
 
