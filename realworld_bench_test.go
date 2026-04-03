@@ -1,12 +1,12 @@
-package regfilter_test
+package filterlist_test
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
-	"github.com/TomTonic/coredns-regfilter/pkg/matcher"
+	"github.com/TomTonic/filterlist/pkg/automaton"
+	"github.com/TomTonic/filterlist/pkg/listparser"
+	"github.com/TomTonic/filterlist/pkg/matcher"
 )
 
 var benchmarkMatcher *matcher.Matcher
@@ -16,7 +16,7 @@ const realisticBenchmarkMaxStates = 0
 
 // loadRealisticDenylistRules combines the two sample filter lists from
 // testdata/filterlists into one denylist-style rule set.
-func loadRealisticDenylistRules(tb testing.TB) []filterlist.Rule {
+func loadRealisticDenylistRules(tb testing.TB) []listparser.Rule {
 	tb.Helper()
 
 	logger := &testLogger{}
@@ -25,16 +25,16 @@ func loadRealisticDenylistRules(tb testing.TB) []filterlist.Rule {
 		filepath.Join(testdataDir(), "easylistgermany_example.txt"),
 	}
 
-	var rules []filterlist.Rule
+	var rules []listparser.Rule
 	for _, path := range paths {
-		parsed, err := filterlist.ParseFile(path, logger)
+		parsed, err := listparser.ParseFile(path, logger)
 		if err != nil {
 			tb.Fatalf("ParseFile(%s) error: %v", path, err)
 		}
 		rules = append(rules, parsed...)
 	}
 
-	filtered := make([]filterlist.Rule, 0, len(rules))
+	filtered := make([]listparser.Rule, 0, len(rules))
 	for _, rule := range rules {
 		if !rule.IsAllow {
 			filtered = append(filtered, rule)

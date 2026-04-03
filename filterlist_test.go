@@ -1,4 +1,4 @@
-package regfilter
+package filterlist
 
 import (
 	"context"
@@ -13,9 +13,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
-	"github.com/TomTonic/coredns-regfilter/pkg/matcher"
-	rfmetrics "github.com/TomTonic/coredns-regfilter/pkg/metrics"
+	"github.com/TomTonic/filterlist/pkg/listparser"
+	"github.com/TomTonic/filterlist/pkg/matcher"
+	rfmetrics "github.com/TomTonic/filterlist/pkg/metrics"
 )
 
 // mockResponseWriter captures the DNS response.
@@ -64,9 +64,9 @@ func (m *mockNextHandler) Name() string { return "mock" }
 
 func buildMatcher(t *testing.T, patterns []string) *matcher.Matcher {
 	t.Helper()
-	var rules []filterlist.Rule
+	var rules []listparser.Rule
 	for _, p := range patterns {
-		rules = append(rules, filterlist.Rule{Pattern: p})
+		rules = append(rules, listparser.Rule{Pattern: p})
 	}
 	m, err := matcher.CompileRules(rules, matcher.CompileOptions{})
 	if err != nil {
@@ -77,7 +77,7 @@ func buildMatcher(t *testing.T, patterns []string) *matcher.Matcher {
 
 // buildMatcherWithSources compiles patterns and returns the Matcher, source strings,
 // and pattern strings for use in debug-mode tests.
-func buildMatcherWithSources(t *testing.T, rules []filterlist.Rule) (*matcher.Matcher, []string, []string) {
+func buildMatcherWithSources(t *testing.T, rules []listparser.Rule) (*matcher.Matcher, []string, []string) {
 	t.Helper()
 	m, err := matcher.CompileRules(rules, matcher.CompileOptions{})
 	if err != nil {
@@ -320,7 +320,7 @@ func getMatchDurationCount(t *testing.T, promReg *prometheus.Registry, result st
 		t.Fatal(err)
 	}
 	for _, f := range families {
-		if f.GetName() == "coredns_regfilter_match_duration_seconds" {
+		if f.GetName() == "coredns_filterlist_match_duration_seconds" {
 			for _, m := range f.GetMetric() {
 				for _, l := range m.GetLabel() {
 					if l.GetName() == "result" && l.GetValue() == result {
@@ -579,9 +579,9 @@ func TestStopWithoutWatcherReturnsNil(t *testing.T) {
 	}
 }
 
-// TestSetupReturnsErrorForInvalidConfig verifies that operators get a setup error before the plugin enters service when the Corefile is invalid by asserting that setup rejects a regfilter block without directories.
+// TestSetupReturnsErrorForInvalidConfig verifies that operators get a setup error before the plugin enters service when the Corefile is invalid by asserting that setup rejects a filterlist block without directories.
 func TestSetupReturnsErrorForInvalidConfig(t *testing.T) {
-	c := caddy.NewTestController("dns", `regfilter { action nxdomain }`)
+	c := caddy.NewTestController("dns", `filterlist { action nxdomain }`)
 	if err := setup(c); err == nil {
 		t.Fatal("expected setup error for invalid configuration")
 	}
@@ -589,7 +589,7 @@ func TestSetupReturnsErrorForInvalidConfig(t *testing.T) {
 
 // TestSetupAllowsWatcherFailure verifies that operators can keep CoreDNS starting even when the initial filter directory is unreadable by asserting that setup remains successful.
 func TestSetupAllowsWatcherFailure(t *testing.T) {
-	c := caddy.NewTestController("dns", `regfilter { denylist_dir /nonexistent/blacklist }`)
+	c := caddy.NewTestController("dns", `filterlist { denylist_dir /nonexistent/blacklist }`)
 	if err := setup(c); err != nil {
 		t.Fatalf("expected setup to stay fail-open, got error: %v", err)
 	}
@@ -644,7 +644,7 @@ func TestServeDNSDebugBlacklistMatch(t *testing.T) {
 			Debug:  true,
 		},
 	}
-	dfa, sources, patterns := buildMatcherWithSources(t, []filterlist.Rule{
+	dfa, sources, patterns := buildMatcherWithSources(t, []listparser.Rule{
 		{Pattern: "ads.example.com", Source: "/etc/coredns/blacklist/deny.txt:7"},
 	})
 	rf.SetDenylist(dfa)
@@ -679,7 +679,7 @@ func TestServeDNSDebugWhitelistMatch(t *testing.T) {
 			Debug:  true,
 		},
 	}
-	dfa, sources, patterns := buildMatcherWithSources(t, []filterlist.Rule{
+	dfa, sources, patterns := buildMatcherWithSources(t, []listparser.Rule{
 		{Pattern: "safe.example.com", Source: "/etc/coredns/whitelist/allow.txt:3"},
 	})
 	rf.SetAllowlist(dfa)

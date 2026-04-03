@@ -1,13 +1,13 @@
-package regfilter_test
+package filterlist_test
 
 import (
 	"path/filepath"
 	"runtime"
 	"testing"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
-	"github.com/TomTonic/coredns-regfilter/pkg/matcher"
+	"github.com/TomTonic/filterlist/pkg/blockloader"
+	"github.com/TomTonic/filterlist/pkg/listparser"
+	"github.com/TomTonic/filterlist/pkg/matcher"
 )
 
 type testLogger struct {
@@ -42,7 +42,7 @@ func TestIntegrationDenylistCompile(t *testing.T) {
 	t.Logf("loaded %d rules from denylist", len(rules))
 
 	// Separate allow and deny rules
-	var denyRules, allowRules []filterlist.Rule
+	var denyRules, allowRules []listparser.Rule
 	for _, r := range rules {
 		if r.IsAllow {
 			allowRules = append(allowRules, r)
@@ -116,7 +116,7 @@ func TestIntegrationDenylistLiteralAnchoredDomainMatchesSubdomains(t *testing.T)
 		t.Fatalf("LoadDirectory error: %v", err)
 	}
 
-	var selected []filterlist.Rule
+	var selected []listparser.Rule
 	for _, rule := range rules {
 		if rule.IsAllow {
 			continue
@@ -174,7 +174,7 @@ func TestIntegrationDenylistWildcardAutomatonMatchesSubdomains(t *testing.T) {
 		t.Fatalf("LoadDirectory error: %v", err)
 	}
 
-	var selected []filterlist.Rule
+	var selected []listparser.Rule
 	for _, rule := range rules {
 		if rule.IsAllow {
 			continue
@@ -276,7 +276,7 @@ func TestIntegrationAllowlistPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var denyRules []filterlist.Rule
+	var denyRules []listparser.Rule
 	for _, r := range blRules {
 		if !r.IsAllow {
 			denyRules = append(denyRules, r)
@@ -316,7 +316,7 @@ func TestRealWorldAdGuardExampleParseAndCompileSubset(t *testing.T) {
 	path := filepath.Join(testdataDir(), "Adguard_filter_example.txt")
 	logger := &testLogger{}
 
-	rules, err := filterlist.ParseFile(path, logger)
+	rules, err := listparser.ParseFile(path, logger)
 	if err != nil {
 		t.Fatalf("ParseFile error: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestRealWorldEasyListGermanyParseAndCompileSubset(t *testing.T) {
 	path := filepath.Join(testdataDir(), "easylistgermany_example.txt")
 	logger := &testLogger{}
 
-	rules, err := filterlist.ParseFile(path, logger)
+	rules, err := listparser.ParseFile(path, logger)
 	if err != nil {
 		t.Fatalf("ParseFile error: %v", err)
 	}
@@ -399,7 +399,7 @@ func TestRealWorldEasyListGermanyParseAndCompileSubset(t *testing.T) {
 	}
 }
 
-func assertPatternsPresent(t *testing.T, rules []filterlist.Rule, patterns []string) {
+func assertPatternsPresent(t *testing.T, rules []listparser.Rule, patterns []string) {
 	t.Helper()
 	for _, pattern := range patterns {
 		found := false
@@ -415,9 +415,9 @@ func assertPatternsPresent(t *testing.T, rules []filterlist.Rule, patterns []str
 	}
 }
 
-func selectRulesByPattern(t *testing.T, rules []filterlist.Rule, patterns []string) []filterlist.Rule {
+func selectRulesByPattern(t *testing.T, rules []listparser.Rule, patterns []string) []listparser.Rule {
 	t.Helper()
-	selected := make([]filterlist.Rule, 0, len(patterns))
+	selected := make([]listparser.Rule, 0, len(patterns))
 	for _, pattern := range patterns {
 		found := false
 		for _, rule := range rules {

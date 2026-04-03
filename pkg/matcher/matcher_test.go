@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/filterlist/pkg/listparser"
 )
 
 // TestCompileRulesEmpty verifies that users can safely compile an empty rule set
@@ -45,7 +45,7 @@ func TestCompileRulesNilMatcher(t *testing.T) {
 // literal-only rule sets through the matcher package by asserting that
 // literal domains and their subdomains match while unrelated names do not.
 func TestLiteralOnlyMatch(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "ads.example.com"},
 		{Pattern: "tracker.example.com"},
 	}
@@ -85,7 +85,7 @@ func TestLiteralOnlyMatch(t *testing.T) {
 // wildcard-only rule sets through the matcher package by asserting that
 // wildcard patterns match expected inputs.
 func TestWildcardOnlyMatch(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "*.ad.example.com"},
 	}
 	m, err := CompileRules(rules, CompileOptions{})
@@ -121,7 +121,7 @@ func TestWildcardOnlyMatch(t *testing.T) {
 // literal and wildcard rules through the matcher package by asserting
 // that both kinds of patterns match independently.
 func TestMixedRules(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "ads.example.com"},       // literal → suffix map
 		{Pattern: "*.tracker.example.com"}, // wildcard → DFA
 	}
@@ -160,7 +160,7 @@ func TestMixedRules(t *testing.T) {
 // original rule indices through the matcher package by asserting that
 // returned rule IDs correspond to input positions.
 func TestRuleAttribution(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "a.com"},   // index 0 → literal
 		{Pattern: "b.com"},   // index 1 → literal
 		{Pattern: "*.c.com"}, // index 2 → wildcard
@@ -189,7 +189,7 @@ func TestRuleAttribution(t *testing.T) {
 // TestCaseInsensitive verifies that the matcher normalizes input to lowercase
 // by asserting that mixed-case queries match lowercase patterns.
 func TestCaseInsensitive(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "Ads.Example.COM"},
 	}
 	m, err := CompileRules(rules, CompileOptions{})
@@ -208,7 +208,7 @@ func TestCaseInsensitive(t *testing.T) {
 // TestDumpDotWildcard verifies that users can export the wildcard DFA for
 // visualization by asserting that DumpDot produces valid DOT output.
 func TestDumpDotWildcard(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "*.example.com"},
 	}
 	m, err := CompileRules(rules, CompileOptions{})
@@ -228,7 +228,7 @@ func TestDumpDotWildcard(t *testing.T) {
 // TestDumpDotNoWildcard verifies that DumpDot returns an error when no
 // wildcard DFA exists.
 func TestDumpDotNoWildcard(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "example.com"},
 	}
 	m, err := CompileRules(rules, CompileOptions{})
@@ -245,16 +245,16 @@ func TestDumpDotNoWildcard(t *testing.T) {
 // TestLargeScale verifies correctness at scale by combining many literal
 // and wildcard patterns.
 func TestLargeScale(t *testing.T) {
-	var rules []filterlist.Rule
+	var rules []listparser.Rule
 	nLiteral := 500
 	nWildcard := 50
 	for i := range nLiteral {
-		rules = append(rules, filterlist.Rule{
+		rules = append(rules, listparser.Rule{
 			Pattern: fmt.Sprintf("host%d.example.com", i),
 		})
 	}
 	for i := range nWildcard {
-		rules = append(rules, filterlist.Rule{
+		rules = append(rules, listparser.Rule{
 			Pattern: fmt.Sprintf("*.ad%d.example.com", i),
 		})
 	}

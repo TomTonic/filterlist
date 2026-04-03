@@ -1,4 +1,4 @@
-package regfilter
+package filterlist
 
 import (
 	"context"
@@ -23,10 +23,10 @@ func (h namedHandler) Name() string { return h.name }
 //
 // This test covers the plugin Corefile parsing and validation path.
 //
-// It asserts that parseConfig rejects a regfilter block without whitelist_dir
+// It asserts that parseConfig rejects a filterlist block without whitelist_dir
 // or blacklist_dir.
 func TestParseConfigRequiresAtLeastOneFilterDirectory(t *testing.T) {
-	c := caddy.NewTestController("dns", `regfilter { action nxdomain }`)
+	c := caddy.NewTestController("dns", `filterlist { action nxdomain }`)
 
 	_, err := parseConfig(c)
 	if err == nil {
@@ -49,7 +49,7 @@ func TestParseConfigRejectsWrongNullIPAddressFamilies(t *testing.T) {
 	}{
 		{
 			name: "rejects IPv6 for nullip",
-			input: `regfilter {
+			input: `filterlist {
 						denylist_dir /tmp/blacklist
 						nullip ::
 					}`,
@@ -57,7 +57,7 @@ func TestParseConfigRejectsWrongNullIPAddressFamilies(t *testing.T) {
 		},
 		{
 			name: "rejects IPv4 for nullip6",
-			input: `regfilter {
+			input: `filterlist {
 				denylist_dir /tmp/blacklist
 				nullip6 0.0.0.0
 			}`,
@@ -85,7 +85,7 @@ func TestParseConfigRejectsWrongNullIPAddressFamilies(t *testing.T) {
 // It asserts that parseConfig stores the provided IPs, limits, and TTL values
 // in the resulting Config.
 func TestParseConfigAcceptsValidFamiliesAndPositiveDurations(t *testing.T) {
-	c := caddy.NewTestController("dns", `regfilter {
+	c := caddy.NewTestController("dns", `filterlist {
 		allowlist_dir /tmp/whitelist
 		denylist_dir /tmp/blacklist
 		action nullip
@@ -137,7 +137,7 @@ func TestParseConfigRejectsNonPositiveDurations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := caddy.NewTestController("dns", "regfilter {\ndenylist_dir /tmp/blacklist\n"+tt.directive+"\n}")
+			c := caddy.NewTestController("dns", "filterlist {\ndenylist_dir /tmp/blacklist\n"+tt.directive+"\n}")
 			_, err := parseConfig(c)
 			if err == nil {
 				t.Fatal("expected parseConfig error")
@@ -147,7 +147,7 @@ func TestParseConfigRejectsNonPositiveDurations(t *testing.T) {
 }
 
 // TestParseConfigDebugDirective verifies that operators can enable per-query
-// debug output by adding the debug keyword to the regfilter Corefile block.
+// debug output by adding the debug keyword to the filterlist Corefile block.
 //
 // This test covers the plugin Corefile parsing path for the debug directive.
 //
@@ -155,7 +155,7 @@ func TestParseConfigRejectsNonPositiveDurations(t *testing.T) {
 // present.
 func TestParseConfigDebugDirective(t *testing.T) {
 	// Without debug
-	c := caddy.NewTestController("dns", `regfilter { denylist_dir /tmp/bl }`)
+	c := caddy.NewTestController("dns", `filterlist { denylist_dir /tmp/bl }`)
 	cfg, err := parseConfig(c)
 	if err != nil {
 		t.Fatalf("parseConfig error: %v", err)
@@ -165,7 +165,7 @@ func TestParseConfigDebugDirective(t *testing.T) {
 	}
 
 	// With debug
-	c = caddy.NewTestController("dns", `regfilter {
+	c = caddy.NewTestController("dns", `filterlist {
 		denylist_dir /tmp/bl
 		debug
 	}`)
@@ -180,7 +180,7 @@ func TestParseConfigDebugDirective(t *testing.T) {
 
 // TestParseConfigInvertWhitelistDirective verifies that operators can switch
 // whitelist rule selection to use ||domain^ syntax instead of @@ by adding the
-// invert_whitelist keyword to the regfilter Corefile block.
+// invert_whitelist keyword to the filterlist Corefile block.
 //
 // This test covers the plugin Corefile parsing path for the invert_whitelist
 // directive.
@@ -188,7 +188,7 @@ func TestParseConfigDebugDirective(t *testing.T) {
 // It asserts that InvertWhitelist is false by default and true when the keyword
 // is present.
 func TestParseConfigInvertWhitelistDirective(t *testing.T) {
-	c := caddy.NewTestController("dns", `regfilter { denylist_dir /tmp/bl }`)
+	c := caddy.NewTestController("dns", `filterlist { denylist_dir /tmp/bl }`)
 	cfg, err := parseConfig(c)
 	if err != nil {
 		t.Fatalf("parseConfig error: %v", err)
@@ -197,7 +197,7 @@ func TestParseConfigInvertWhitelistDirective(t *testing.T) {
 		t.Error("expected InvertAllowlist=false by default")
 	}
 
-	c = caddy.NewTestController("dns", `regfilter {
+	c = caddy.NewTestController("dns", `filterlist {
 		denylist_dir /tmp/bl
 		invert_allowlist
 	}`)
@@ -211,13 +211,13 @@ func TestParseConfigInvertWhitelistDirective(t *testing.T) {
 }
 
 // TestPluginOrderWarning verifies that operators get a clear startup warning
-// when regfilter is configured behind forward and would never see live DNS
+// when filterlist is configured behind forward and would never see live DNS
 // queries.
 //
 // This test covers the CoreDNS handler-order validation helper used during
 // plugin startup.
 //
-// It asserts that the helper warns only when forward appears before regfilter
+// It asserts that the helper warns only when forward appears before filterlist
 // in the execution chain.
 func TestPluginOrderWarning(t *testing.T) {
 	tests := []struct {
@@ -226,19 +226,19 @@ func TestPluginOrderWarning(t *testing.T) {
 		wantWarn bool
 	}{
 		{
-			name: "warns when forward precedes regfilter",
+			name: "warns when forward precedes filterlist",
 			handlers: []plugin.Handler{
 				namedHandler{name: "errors"},
 				namedHandler{name: "forward"},
-				namedHandler{name: "regfilter"},
+				namedHandler{name: "filterlist"},
 			},
 			wantWarn: true,
 		},
 		{
-			name: "stays quiet when regfilter precedes forward",
+			name: "stays quiet when filterlist precedes forward",
 			handlers: []plugin.Handler{
 				namedHandler{name: "errors"},
-				namedHandler{name: "regfilter"},
+				namedHandler{name: "filterlist"},
 				namedHandler{name: "forward"},
 			},
 			wantWarn: false,
@@ -247,7 +247,7 @@ func TestPluginOrderWarning(t *testing.T) {
 			name: "stays quiet when forward is absent",
 			handlers: []plugin.Handler{
 				namedHandler{name: "errors"},
-				namedHandler{name: "regfilter"},
+				namedHandler{name: "filterlist"},
 			},
 			wantWarn: false,
 		},

@@ -2,7 +2,7 @@
 
 ## Overview
 
-`coredns-regfilter` is a CoreDNS plugin for DNS-layer domain filtering. It
+`filterlist` is a CoreDNS plugin for DNS-layer domain filtering. It
 loads supported host-based rules from whitelist and blacklist directories,
 compiles them into a hybrid matching structure, and evaluates DNS queries
 against that structure on the request path.
@@ -66,7 +66,7 @@ pkg/matcher          (compositor)
   no dependency on the automaton or filter list parsing.
 
 - **`pkg/matcher`** is the compositor that callers use. It receives parsed
-  `filterlist.Rule` values, classifies them as literal or wildcard, delegates
+  `listparser.Rule` values, classifies them as literal or wildcard, delegates
   to `suffixmap.New` and `automaton.Compile`, and combines the results behind
   a single `Matcher.Match` method.
 
@@ -79,7 +79,7 @@ They do not import `pkg/automaton` or `pkg/suffixmap` directly.
 query
        |
        v
-regfilter ServeDNS
+filterlist ServeDNS
        |
        +--> whitelist snapshot -> match? yes -> next plugin
        |
@@ -107,7 +107,7 @@ watcher
 
 Two details are easy to miss but central to the design:
 
-- `regfilter` only sees queries if it appears early enough in the generated CoreDNS plugin chain, and in practice it must run before terminal plugins such as `forward`.
+- `filterlist` only sees queries if it appears early enough in the generated CoreDNS plugin chain, and in practice it must run before terminal plugins such as `forward`.
 - The runtime does not swap raw matchers alone; it swaps a snapshot that also carries rule count, source file references, and original patterns for logging and diagnostics.
 
 ## CoreDNS Integration
@@ -118,11 +118,11 @@ order comes from the generated CoreDNS plugin chain derived from `plugin.cfg`.
 That distinction matters because:
 
 - Corefile stanza order does not control which plugin runs first;
-- `regfilter` must be inserted before `forward` in the generated chain;
-- if `forward` runs first, `regfilter` may initialize successfully but never see live queries, so it cannot filter or emit per-query debug logs.
+- `filterlist` must be inserted before `forward` in the generated chain;
+- if `forward` runs first, `filterlist` may initialize successfully but never see live queries, so it cannot filter or emit per-query debug logs.
 
 The plugin emits a startup warning when it detects that `forward` appears
-before `regfilter` in the constructed handler chain.
+before `filterlist` in the constructed handler chain.
 
 ## Rule Ingestion and Selection
 
@@ -135,8 +135,8 @@ The watcher loads directories non-recursively through `blockloader`.
 - unreadable directories cause the directory compile to fail;
 - extension filtering happens before parsing.
 
-`blockloader` delegates file parsing to `filterlist.ParseFile`, which produces
-canonical `filterlist.Rule` values.
+`blockloader` delegates file parsing to `listparser.ParseFile`, which produces
+canonical `listparser.Rule` values.
 
 ### Canonical Rule Model
 
@@ -328,7 +328,7 @@ For reproducible benchmarking in the repository, see
 
 ## Metrics and Logging
 
-All metrics are exported with the `coredns_regfilter_` prefix.
+All metrics are exported with the `coredns_filterlist_` prefix.
 
 ### Query Metrics
 

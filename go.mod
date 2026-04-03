@@ -1,4 +1,4 @@
-module github.com/TomTonic/coredns-regfilter
+module github.com/TomTonic/filterlist
 
 go 1.25.0
 

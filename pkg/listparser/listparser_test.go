@@ -1,4 +1,4 @@
-package filterlist
+package listparser
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestParseLineSkip verifies that users can keep comments and blank lines in filter lists without creating bogus rules in the filterlist parser by asserting that such lines are skipped silently.
+// TestParseLineSkip verifies that users can keep comments and blank lines in filter lists without creating bogus rules in the listparser package by asserting that such lines are skipped silently.
 func TestParseLineSkip(t *testing.T) {
 	skips := []string{
 		"",
@@ -27,7 +27,7 @@ func TestParseLineSkip(t *testing.T) {
 	}
 }
 
-// TestParseLineAdGuardDomain verifies that users can import standard AdGuard host rules in the filterlist parser by asserting that anchored domain syntax becomes the expected canonical pattern.
+// TestParseLineAdGuardDomain verifies that users can import standard AdGuard host rules in the listparser package by asserting that anchored domain syntax becomes the expected canonical pattern.
 func TestParseLineAdGuardDomain(t *testing.T) {
 	tests := []struct {
 		input   string

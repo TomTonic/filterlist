@@ -1,7 +1,7 @@
-// Package regfilter implements the CoreDNS regfilter plugin.
+// Package filterlist implements the CoreDNS filterlist plugin.
 // It intercepts DNS queries and checks them against allowlist and denylist
 // DFAs, blocking or allowing queries according to configuration.
-package regfilter
+package filterlist
 
 import (
 	"context"
@@ -16,14 +16,14 @@ import (
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/miekg/dns"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/matcher"
-	"github.com/TomTonic/coredns-regfilter/pkg/metrics"
-	"github.com/TomTonic/coredns-regfilter/pkg/watcher"
+	"github.com/TomTonic/filterlist/pkg/matcher"
+	"github.com/TomTonic/filterlist/pkg/metrics"
+	"github.com/TomTonic/filterlist/pkg/watcher"
 )
 
-var log = clog.NewWithPlugin("regfilter")
+var log = clog.NewWithPlugin("filterlist")
 
-// ActionConfig describes how regfilter answers blocked DNS questions.
+// ActionConfig describes how filterlist answers blocked DNS questions.
 //
 // Mode selects the response policy and must be one of nxdomain, nullip, or
 // refuse. NullIPv4 and NullIPv6 provide sinkhole answers for A and AAAA
@@ -36,7 +36,7 @@ type ActionConfig struct {
 	TTL      uint32
 }
 
-// Config holds the complete regfilter runtime configuration.
+// Config holds the complete filterlist runtime configuration.
 //
 // AllowlistDir and DenylistDir point at directories containing supported
 // filter list files. Action configures the DNS response for blocked names,
@@ -78,9 +78,9 @@ type Plugin struct {
 
 // Name reports the CoreDNS plugin name used for error wrapping and chaining.
 //
-// It returns the static identifier regfilter so CoreDNS can attribute handler
+// It returns the static identifier filterlist so CoreDNS can attribute handler
 // failures and plugin ordering to this module.
-func (rf *Plugin) Name() string { return "regfilter" }
+func (rf *Plugin) Name() string { return "filterlist" }
 
 // SetAllowlist atomically installs m as the active allowlist matcher.
 //
@@ -341,7 +341,7 @@ func (rf *Plugin) StartWatcher() error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("regfilter: start watcher: %w", err)
+		return fmt.Errorf("filterlist: start watcher: %w", err)
 	}
 	rf.stopWatcher = stop
 	return nil
@@ -361,11 +361,11 @@ func (rf *Plugin) Stop() error {
 // pluginLogger adapts CoreDNS log to watcher.Logger.
 type pluginLogger struct{}
 
-// Warnf forwards watcher warnings to the CoreDNS regfilter logger.
+// Warnf forwards watcher warnings to the CoreDNS filterlist logger.
 func (pluginLogger) Warnf(format string, args ...interface{}) { log.Warningf(format, args...) }
 
-// Infof forwards watcher informational messages to the CoreDNS regfilter logger.
+// Infof forwards watcher informational messages to the CoreDNS filterlist logger.
 func (pluginLogger) Infof(format string, args ...interface{}) { log.Infof(format, args...) }
 
-// Errorf forwards watcher errors to the CoreDNS regfilter logger.
+// Errorf forwards watcher errors to the CoreDNS filterlist logger.
 func (pluginLogger) Errorf(format string, args ...interface{}) { log.Errorf(format, args...) }

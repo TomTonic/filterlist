@@ -1,11 +1,11 @@
-# Contributing to coredns-regfilter
+# Contributing to filterlist
 
 ## Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/tomtonic/coredns-regfilter.git
-cd coredns-regfilter
+git clone https://github.com/TomTonic/filterlist.git
+cd filterlist
 
 # Install dependencies
 go mod download

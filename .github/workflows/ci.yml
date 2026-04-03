@@ -47,10 +47,10 @@ jobs:
           path: coverage.out
 
       - name: Build CLI
-        run: go build -o build/regfilter-check ./cmd/regfilter-check
+        run: go build -o build/filterlist-check ./cmd/filterlist-check
 
       - name: Run CLI validate
         run: |
-          ./build/regfilter-check validate \
+          ./build/filterlist-check validate \
             --allowlist testdata/filterlists/allowlist \
             --denylist testdata/filterlists/denylist

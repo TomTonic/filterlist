@@ -29,23 +29,23 @@ jobs:
         run: |
           GOOS=linux GOARCH=amd64 \
             go build -trimpath \
-            -o build/regfilter-check-linux-amd64 \
-            ./cmd/regfilter-check
+            -o build/filterlist-check-linux-amd64 \
+            ./cmd/filterlist-check
           GOOS=linux GOARCH=arm64 \
             go build -trimpath \
-            -o build/regfilter-check-linux-arm64 \
-            ./cmd/regfilter-check
+            -o build/filterlist-check-linux-arm64 \
+            ./cmd/filterlist-check
           GOOS=darwin GOARCH=amd64 \
             go build -trimpath \
-            -o build/regfilter-check-darwin-amd64 \
-            ./cmd/regfilter-check
+            -o build/filterlist-check-darwin-amd64 \
+            ./cmd/filterlist-check
           GOOS=darwin GOARCH=arm64 \
             go build -trimpath \
-            -o build/regfilter-check-darwin-arm64 \
-            ./cmd/regfilter-check
+            -o build/filterlist-check-darwin-arm64 \
+            ./cmd/filterlist-check
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/regfilter-check-*
+          files: build/filterlist-check-*
           generate_release_notes: true

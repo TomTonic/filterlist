@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/automaton"
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
-	"github.com/TomTonic/coredns-regfilter/pkg/suffixmap"
+	"github.com/TomTonic/filterlist/pkg/automaton"
+	"github.com/TomTonic/filterlist/pkg/listparser"
+	"github.com/TomTonic/filterlist/pkg/suffixmap"
 )
 
 // Logger receives progress messages during compilation.
@@ -61,7 +61,7 @@ type Matcher struct {
 //
 // Returns an error if DFA compilation fails (e.g. state limit exceeded or
 // timeout). An empty rule set produces a valid Matcher that never matches.
-func CompileRules(rules []filterlist.Rule, opts CompileOptions) (*Matcher, error) {
+func CompileRules(rules []listparser.Rule, opts CompileOptions) (*Matcher, error) {
 	logf := nopLogf
 	if opts.Logger != nil {
 		logf = opts.Logger.Infof

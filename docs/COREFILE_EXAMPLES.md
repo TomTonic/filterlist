@@ -1,12 +1,12 @@
 # Corefile Examples
 
-These examples cover the most common `regfilter` deployment patterns. At least one of `allowlist_dir` or `denylist_dir` must be configured. If both are present, the allowlist is evaluated first and takes precedence over the denylist.
+These examples cover the most common `filterlist` deployment patterns. At least one of `allowlist_dir` or `denylist_dir` must be configured. If both are present, the allowlist is evaluated first and takes precedence over the denylist.
 
 ## Basic Setup — NXDOMAIN for blocked domains
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         allowlist_dir /etc/coredns/allowlist.d
         denylist_dir /etc/coredns/denylist.d
         action nxdomain
@@ -23,7 +23,7 @@ Use this when you want blocked domains to resolve as NXDOMAIN while allowing exp
 . {
     prometheus :9153
 
-    regfilter {
+    filterlist {
         allowlist_dir /etc/coredns/allowlist.d
         denylist_dir /etc/coredns/denylist.d
         action nxdomain
@@ -33,7 +33,7 @@ Use this when you want blocked domains to resolve as NXDOMAIN while allowing exp
 }
 ```
 
-This exposes the `coredns_regfilter_*` metrics on the CoreDNS Prometheus endpoint.
+This exposes the `coredns_filterlist_*` metrics on the CoreDNS Prometheus endpoint.
 
 ## Null IP Response
 
@@ -41,7 +41,7 @@ Returns `0.0.0.0` for A queries and `::` for AAAA queries on blocked domains.
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         denylist_dir /etc/coredns/denylist.d
         action nullip
         nullip 0.0.0.0
@@ -58,7 +58,7 @@ For non-`A` and non-`AAAA` blocked queries, the plugin falls back to NXDOMAIN.
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         denylist_dir /etc/coredns/denylist.d
         action refuse
     }
@@ -72,7 +72,7 @@ Use this when blocked queries should be rejected explicitly rather than answered
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         allowlist_dir /etc/coredns/allowlist.d
         denylist_dir /etc/coredns/denylist.d
         action refuse
@@ -89,7 +89,7 @@ For very large filter lists, increase compile limits:
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         denylist_dir /etc/coredns/denylist.d
         action nxdomain
         max_states 500000
@@ -106,7 +106,7 @@ Use only a whitelist — all non-whitelisted domains will be forwarded normally.
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         allowlist_dir /etc/coredns/allowlist.d
     }
     forward . 8.8.8.8
@@ -121,7 +121,7 @@ Enable per-query log output to trace which rule matched a query:
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         allowlist_dir /etc/coredns/allowlist.d
         denylist_dir /etc/coredns/denylist.d
         action nxdomain
@@ -134,15 +134,15 @@ Enable per-query log output to trace which rule matched a query:
 With `debug` enabled, every DNS query produces a log line at `[INFO]` level showing the matching list, the queried domain, the source file and line, and the original rule pattern. Example output:
 
 ```
-[INFO] plugin/regfilter: denylist match name=ads.example.com rule=deny.txt:3 (ads.example.com)
-[INFO] plugin/regfilter: allowlist match name=safe.example.com rule=allow.txt:1 (safe.example.com)
-[INFO] plugin/regfilter: no match name=clean.example.com
+[INFO] plugin/filterlist: denylist match name=ads.example.com rule=deny.txt:3 (ads.example.com)
+[INFO] plugin/filterlist: allowlist match name=safe.example.com rule=allow.txt:1 (safe.example.com)
+[INFO] plugin/filterlist: no match name=clean.example.com
 ```
 
 The same rule tracing is available offline with the CLI tool:
 
 ```bash
-./build/regfilter-check match --denylist /etc/coredns/denylist.d --name ads.example.com
+./build/filterlist-check match --denylist /etc/coredns/denylist.d --name ads.example.com
 ```
 
 ## Inverted Allowlist Syntax
@@ -151,7 +151,7 @@ By default, allowlist files use the `@@` exception prefix from AdGuard syntax (`
 
 ```txt
 . {
-    regfilter {
+    filterlist {
         allowlist_dir /etc/coredns/allowlist.d
         denylist_dir /etc/coredns/denylist.d
         action nxdomain

@@ -1,11 +1,11 @@
-// Command regfilter-check is a CLI tool for offline validation and debugging
+// Command filterlist-check is a CLI tool for offline validation and debugging
 // of filter lists and compiled DFAs.
 //
 // Usage:
 //
-//	regfilter-check validate --allowlist DIR --denylist DIR
-//	regfilter-check match --allowlist DIR --denylist DIR --name example.com
-//	regfilter-check dump-dot --allowlist DIR --denylist DIR --out allowlist.dot,denylist.dot
+//	filterlist-check validate --allowlist DIR --denylist DIR
+//	filterlist-check match --allowlist DIR --denylist DIR --name example.com
+//	filterlist-check dump-dot --allowlist DIR --denylist DIR --out allowlist.dot,denylist.dot
 package main
 
 import (
@@ -16,9 +16,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
-	"github.com/TomTonic/coredns-regfilter/pkg/matcher"
+	"github.com/TomTonic/filterlist/pkg/blockloader"
+	"github.com/TomTonic/filterlist/pkg/listparser"
+	"github.com/TomTonic/filterlist/pkg/matcher"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 // usage prints the top-level command help text.
 func usage(stderr io.Writer) {
-	writeln(stderr, `regfilter-check — offline filter list validator and debugger
+	writeln(stderr, `filterlist-check — offline filter list validator and debugger
 
 Commands:
   validate   Load directories, compile DFAs, print summary
@@ -345,7 +345,7 @@ func shortSource(source string) string {
 // filterRulesForList selects the subset of rules appropriate for the given list
 // label. Blacklist directories exclude @@ (exception) rules; whitelist
 // directories keep only @@ rules by default or non-@@ rules when inverted.
-func filterRulesForList(rules []filterlist.Rule, label string, invertAllowlist bool) []filterlist.Rule {
+func filterRulesForList(rules []listparser.Rule, label string, invertAllowlist bool) []listparser.Rule {
 	switch label {
 	case "denylist":
 		return keepRules(rules, false)
@@ -360,8 +360,8 @@ func filterRulesForList(rules []filterlist.Rule, label string, invertAllowlist b
 }
 
 // keepRules returns the subset of rules whose IsAllow field equals wantAllow.
-func keepRules(rules []filterlist.Rule, wantAllow bool) []filterlist.Rule {
-	filtered := make([]filterlist.Rule, 0, len(rules))
+func keepRules(rules []listparser.Rule, wantAllow bool) []listparser.Rule {
+	filtered := make([]listparser.Rule, 0, len(rules))
 	for _, r := range rules {
 		if r.IsAllow == wantAllow {
 			filtered = append(filtered, r)

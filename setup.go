@@ -1,4 +1,4 @@
-package regfilter
+package filterlist
 
 import (
 	"errors"
@@ -11,29 +11,29 @@ import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 
-	rfmetrics "github.com/TomTonic/coredns-regfilter/pkg/metrics"
+	rfmetrics "github.com/TomTonic/filterlist/pkg/metrics"
 )
 
 func init() {
-	plugin.Register("regfilter", setup)
+	plugin.Register("filterlist", setup)
 }
 
-// setup is the caddy setup function registered for the "regfilter" directive.
+// setup is the caddy setup function registered for the "filterlist" directive.
 func setup(c *caddy.Controller) error {
-	log.Infof("regfilter %s", readBuildInfo())
+	log.Infof("filterlist %s", readBuildInfo())
 
 	cfg, err := parseConfig(c)
 	if err != nil {
-		return plugin.Error("regfilter", err)
+		return plugin.Error("filterlist", err)
 	}
 
-	rf := &RegFilter{
+	rf := &Plugin{
 		Config:  cfg,
 		metrics: rfmetrics.NewRegistry(),
 	}
 
 	if err := rf.StartWatcher(); err != nil {
-		return plugin.Error("regfilter", err)
+		return plugin.Error("filterlist", err)
 	}
 
 	// Register shutdown hook
@@ -56,17 +56,17 @@ func setup(c *caddy.Controller) error {
 	return nil
 }
 
-// pluginOrderWarning explains when the configured handler order makes regfilter
+// pluginOrderWarning explains when the configured handler order makes filterlist
 // ineffective because a terminal forward plugin runs earlier in the chain.
 func pluginOrderWarning(handlers []plugin.Handler) string {
-	regfilterIndex := -1
+	filterlistIndex := -1
 	forwardIndex := -1
 
 	for index, handler := range handlers {
 		switch handler.Name() {
-		case "regfilter":
-			if regfilterIndex == -1 {
-				regfilterIndex = index
+		case "filterlist":
+			if filterlistIndex == -1 {
+				filterlistIndex = index
 			}
 		case "forward":
 			if forwardIndex == -1 {
@@ -75,21 +75,21 @@ func pluginOrderWarning(handlers []plugin.Handler) string {
 		}
 	}
 
-	if regfilterIndex == -1 || forwardIndex == -1 || regfilterIndex < forwardIndex {
+	if filterlistIndex == -1 || forwardIndex == -1 || filterlistIndex < forwardIndex {
 		return ""
 	}
 
-	return "regfilter is ordered after the 'forward' plugin in the generated CoreDNS plugin chain; forward is typically terminal, so regfilter will not see queries (and not log them). The relevant order comes from plugin.cfg, not Corefile stanza order. Move regfilter before forward in plugin.cfg."
+	return "filterlist is ordered after the 'forward' plugin in the generated CoreDNS plugin chain; forward is typically terminal, so filterlist will not see queries (and not log them). The relevant order comes from plugin.cfg, not Corefile stanza order. Move filterlist before forward in plugin.cfg."
 }
 
-// parseConfig reads the regfilter stanza from c and returns a validated Config.
+// parseConfig reads the filterlist stanza from c and returns a validated Config.
 //
-// The c parameter must be positioned on a regfilter block inside a CoreDNS
+// The c parameter must be positioned on a filterlist block inside a CoreDNS
 // Corefile. The returned Config contains defaults for omitted options and a
 // validation error for unsupported directives, invalid IP families, negative
 // durations, or configurations that would start without any filter directory.
 // Setup uses this as the single translation layer between Corefile syntax and
-// the runtime RegFilter configuration.
+// the runtime Plugin configuration.
 func parseConfig(c *caddy.Controller) (Config, error) {
 	cfg := Config{
 		Action: ActionConfig{

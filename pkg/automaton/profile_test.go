@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/filterlist/pkg/listparser"
 )
 
 // TestProfileCompilePhases profiles a realistic subset of rules to identify
@@ -119,7 +119,7 @@ func loadProfilePatterns(t *testing.T) []Pattern {
 
 	var patterns []Pattern
 	for _, p := range paths {
-		parsed, err := filterlist.ParseFile(p, nil)
+		parsed, err := listparser.ParseFile(p, nil)
 		if err != nil {
 			t.Fatalf("ParseFile(%s): %v", p, err)
 		}

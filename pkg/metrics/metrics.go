@@ -1,4 +1,4 @@
-// Package metrics provides Prometheus metrics helpers for the regfilter plugin.
+// Package metrics provides Prometheus metrics helpers for the filterlist plugin.
 package metrics
 
 import (
@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Registry groups the Prometheus collectors used by regfilter.
+// Registry groups the Prometheus collectors used by filterlist.
 //
 // Each field exposes one metric family for query decisions, compile results,
 // or current ruleset size. Callers usually create one Registry per process or
@@ -26,17 +26,17 @@ type Registry struct {
 	MatchDuration              *prometheus.SummaryVec
 }
 
-// NewRegistry creates a regfilter metric set on prometheus.DefaultRegisterer.
+// NewRegistry creates a filterlist metric set on prometheus.DefaultRegisterer.
 //
 // The returned Registry reuses already-registered collectors when another
-// regfilter instance has already published the same metric names. Use this in
+// filterlist instance has already published the same metric names. Use this in
 // CoreDNS plugin setup paths where multiple server blocks may instantiate the
 // plugin within the same process.
 func NewRegistry() *Registry {
 	return NewRegistryWith(prometheus.DefaultRegisterer)
 }
 
-// NewRegistryWith creates a regfilter metric set on reg.
+// NewRegistryWith creates a filterlist metric set on reg.
 //
 // The reg parameter selects the Prometheus registerer that should own the
 // metrics. When reg already contains collectors with the same metric
@@ -46,68 +46,68 @@ func NewRegistryWith(reg prometheus.Registerer) *Registry {
 	r := &Registry{
 		AllowlistChecks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "allowlist_checks_total",
 			Help:      "Total number of queries checked against the allowlist DFA.",
 		}),
 		DenylistChecks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "denylist_checks_total",
 			Help:      "Total number of queries checked against the denylist DFA.",
 		}),
 		AllowlistHits: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "allowlist_hits_total",
 			Help:      "Total number of queries matched by allowlist DFA.",
 		}),
 		DenylistHits: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "denylist_hits_total",
 			Help:      "Total number of queries matched by denylist DFA.",
 		}),
 		CompileErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "compile_errors_total",
 			Help:      "Total number of failed filter load or compile runs.",
 		}),
 		CompileDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "compile_duration_seconds",
 			Help:      "Duration of DFA compilation in seconds.",
 			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 12),
 		}),
 		AllowlistRules: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "allowlist_rules",
 			Help:      "Current number of compiled allowlist rules.",
 		}),
 		DenylistRules: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "denylist_rules",
 			Help:      "Current number of compiled denylist rules.",
 		}),
 		LastCompileTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "last_compile_timestamp_seconds",
 			Help:      "Unix timestamp of the last successful DFA compilation.",
 		}),
 		LastCompileDurationSeconds: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
-			Subsystem: "regfilter",
+			Subsystem: "filterlist",
 			Name:      "last_compile_duration_seconds",
 			Help:      "Duration of the most recent DFA compilation in seconds.",
 		}),
 		MatchDuration: prometheus.NewSummaryVec(prometheus.SummaryOpts{
 			Namespace:  "coredns",
-			Subsystem:  "regfilter",
+			Subsystem:  "filterlist",
 			Name:       "match_duration_seconds",
 			Help:       "Duration of DNS query matching in seconds, by result.",
 			Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/filterlist/pkg/listparser"
 )
 
 func writeFilterFile(t *testing.T, dir, name, content string) {
@@ -26,7 +26,7 @@ func TestRunWithoutArgsShowsUsage(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("run() code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "regfilter-check") {
+	if !strings.Contains(stderr.String(), "filterlist-check") {
 		t.Fatalf("stderr = %q, want usage output", stderr.String())
 	}
 }
@@ -156,7 +156,7 @@ func TestRunDumpDotWritesOutput(t *testing.T) {
 // TestNormalizeDomain verifies that operators get stable lowercase DNS names
 // when domain input passes through the CLI normalization path.
 //
-// This test covers the regfilter-check CLI's domain normalization helper.
+// This test covers the filterlist-check CLI's domain normalization helper.
 //
 // It asserts that trailing dots are removed and casing is normalized without
 // altering already canonical names.
@@ -255,7 +255,7 @@ func TestWriteRuleDetail(t *testing.T) {
 // It asserts each combination of label and invert flag against a mixed set
 // of allow and deny rules.
 func TestFilterRulesForList(t *testing.T) {
-	rules := []filterlist.Rule{
+	rules := []listparser.Rule{
 		{Pattern: "block.example.com", IsAllow: false},
 		{Pattern: "allow.example.com", IsAllow: true},
 	}

@@ -1,4 +1,4 @@
-package regfilter
+package filterlist
 
 import (
 	"runtime/debug"

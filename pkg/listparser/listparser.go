@@ -1,4 +1,4 @@
-// Package filterlist parses AdGuard, EasyList, and hosts-style filter lists
+// Package listparser parses AdGuard, EasyList, and hosts-style filter lists
 // into canonical Rule objects that represent domain-focused blocking or allow rules.
 //
 // Supported constructs:
@@ -11,7 +11,7 @@
 //   - Non-network rules (##, #@#, #?#, #$#, $$, #%, ...)
 //   - Advanced modifiers that change rule semantics ($script, $domain=, etc.)
 //   - Path-only rules without hostnames
-package filterlist
+package listparser
 
 import (
 	"bufio"
@@ -71,11 +71,11 @@ func ParseFile(path string, logger Logger) (rules []Rule, err error) {
 	cleanPath := filepath.Clean(path)
 	f, err := os.Open(cleanPath)
 	if err != nil {
-		return nil, fmt.Errorf("filterlist: open %s: %w", cleanPath, err)
+		return nil, fmt.Errorf("listparser: open %s: %w", cleanPath, err)
 	}
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("filterlist: close %s: %w", cleanPath, closeErr)
+			err = fmt.Errorf("listparser: close %s: %w", cleanPath, closeErr)
 		}
 	}()
 
@@ -100,7 +100,7 @@ func ParseFile(path string, logger Logger) (rules []Rule, err error) {
 		}
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
-		return rules, fmt.Errorf("filterlist: read %s: %w", cleanPath, scanErr)
+		return rules, fmt.Errorf("listparser: read %s: %w", cleanPath, scanErr)
 	}
 	return rules, nil
 }

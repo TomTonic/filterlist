@@ -105,7 +105,7 @@ func TestMatchDurationLabels(t *testing.T) {
 
 	var found bool
 	for _, f := range families {
-		if f.GetName() == "coredns_regfilter_match_duration_seconds" {
+		if f.GetName() == "coredns_filterlist_match_duration_seconds" {
 			found = true
 			if len(f.GetMetric()) != 3 {
 				t.Errorf("expected 3 metric series (accept/reject/pass), got %d", len(f.GetMetric()))
@@ -137,7 +137,7 @@ func TestCompileDurationHistogram(t *testing.T) {
 	}
 
 	for _, f := range families {
-		if f.GetName() == "coredns_regfilter_compile_duration_seconds" {
+		if f.GetName() == "coredns_filterlist_compile_duration_seconds" {
 			m := f.GetMetric()
 			if len(m) != 1 {
 				t.Fatalf("expected 1 series, got %d", len(m))

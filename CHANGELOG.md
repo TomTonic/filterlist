@@ -14,6 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hot reload via fsnotify with debouncing
 - CoreDNS plugin with whitelist/blacklist support
 - Block actions: NXDOMAIN, REFUSE, null IP
-- CLI tool (`regfilter-check`) for validation, matching, and DOT export
+- CLI tool (`filterlist-check`) for validation, matching, and DOT export
 - Prometheus metrics
 - Comprehensive test suite with fuzzing support

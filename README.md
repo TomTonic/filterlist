@@ -1,6 +1,6 @@
-# coredns-regfilter
+# filterlist
 
-`coredns-regfilter` is a CoreDNS plugin that filters DNS queries against a hybrid matching engine built from allowlist and denylist filter lists. It is designed for DNS-layer blocking of domain-based rules with predictable lookup latency and live reload support.
+`filterlist` is a CoreDNS plugin that filters DNS queries against a hybrid matching engine built from allowlist and denylist filter lists. It is designed for DNS-layer blocking of domain-based rules with predictable lookup latency and live reload support.
 
 The plugin loads host-oriented rules from supported filter list formats, splits them into literal domain patterns (stored in a hash-based suffix map) and wildcard patterns (compiled into a minimized DFA), and evaluates each DNS question in this order:
 
@@ -21,7 +21,7 @@ That makes whitelist precedence explicit and keeps per-query matching on the hot
 - **Observability**: Prometheus metrics and structured logging
 - **CLI tool**: Offline validation, matching, and DOT graph export
 
--## How It Works
+## How It Works
 
 - Filter files are read from dedicated allowlist and denylist directories.
 - Supported rules are split into literal domains (suffix map) and wildcards (DFA).
@@ -34,11 +34,11 @@ This project intentionally focuses on DNS-relevant host matching. Browser-only r
 
 ### Build
 
-To use `regfilter` in production, build a custom CoreDNS binary that includes this plugin.
+To use `filterlist` in production, build a custom CoreDNS binary that includes this plugin.
 
 1. Clone the CoreDNS repository and enter it.
-2. Add the `coredns-regfilter` module as a dependency.
-3. Register `regfilter` in `plugin.cfg` **before** `forward` so it is inserted earlier in the CoreDNS plugin chain.
+2. Add the `filterlist` module as a dependency.
+3. Register `filterlist` in `plugin.cfg` **before** `forward` so it is inserted earlier in the CoreDNS plugin chain.
 4. Regenerate the generated plugin glue.
 5. Build CoreDNS.
 
@@ -48,16 +48,16 @@ Example:
 git clone https://github.com/coredns/coredns.git
 cd coredns
 
-go get github.com/TomTonic/coredns-regfilter@latest
+go get github.com/TomTonic/filterlist@latest
 ```
 
 Then edit `plugin.cfg` and add this line before `forward`:
 
 ```txt
-regfilter:github.com/TomTonic/coredns-regfilter
+filterlist:github.com/TomTonic/filterlist
 ```
 
-The important order is the CoreDNS plugin chain generated from `plugin.cfg`, not the order in which Go downloads modules and not the stanza order in the Corefile. `go get` only makes the module available to the build. `regfilter` must be listed before `forward` in `plugin.cfg` so the generated handler chain reaches `regfilter` before `forward` answers the query.
+The important order is the CoreDNS plugin chain generated from `plugin.cfg`, not the order in which Go downloads modules and not the stanza order in the Corefile. `go get` only makes the module available to the build. `filterlist` must be listed before `forward` in `plugin.cfg` so the generated handler chain reaches `filterlist` before `forward` answers the query.
 
 After updating `plugin.cfg`, regenerate and build:
 
@@ -66,15 +66,15 @@ go generate
 go build
 ```
 
-This produces a `coredns` binary that includes the `regfilter` plugin.
+This produces a `coredns` binary that includes the `filterlist` plugin.
 
 ### Build the CLI Helper
 
 ```bash
-go build -o build/regfilter-check ./cmd/regfilter-check
+go build -o build/filterlist-check ./cmd/filterlist-check
 ```
 
-This produces the helper CLI at `./build/regfilter-check`. The CLI is optional and useful for validating lists and debugging rule behavior outside of CoreDNS.
+This produces the helper CLI at `./build/filterlist-check`. The CLI is optional and useful for validating lists and debugging rule behavior outside of CoreDNS.
 
 ### Corefile Configuration
 
@@ -82,7 +82,7 @@ This produces the helper CLI at `./build/regfilter-check`. The CLI is optional a
 . {
   prometheus :9153
 
-  regfilter {
+  filterlist {
     allowlist_dir /etc/coredns/allowlist.d
     denylist_dir /etc/coredns/denylist.d
     action nxdomain
@@ -97,20 +97,20 @@ This produces the helper CLI at `./build/regfilter-check`. The CLI is optional a
 In that configuration:
 
 - `prometheus` exposes the metrics described below.
-- `regfilter` evaluates queries before they are forwarded upstream.
+- `filterlist` evaluates queries before they are forwarded upstream.
 - `allowlist_dir` takes precedence over `denylist_dir` when the same domain matches both sets.
 
 ### CLI Tool
 
 ```bash
 # Validate filter lists
-./build/regfilter-check validate --allowlist testdata/filterlists/allowlist --denylist testdata/filterlists/denylist
+./build/filterlist-check validate --allowlist testdata/filterlists/allowlist --denylist testdata/filterlists/denylist
 
 # Check a specific domain
-./build/regfilter-check match --denylist testdata/filterlists/denylist --name ads.example.com
+./build/filterlist-check match --denylist testdata/filterlists/denylist --name ads.example.com
 
 # Export DFA as DOT graph
-./build/regfilter-check dump-dot --denylist testdata/filterlists/denylist --out allowlist.dot,denylist.dot
+./build/filterlist-check dump-dot --denylist testdata/filterlists/denylist --out allowlist.dot,denylist.dot
 ```
 
 The CLI is useful for validating large lists before deploying them into CoreDNS, checking whether a particular name matches, and inspecting the generated automata when you need to troubleshoot rule behavior.
@@ -132,7 +132,7 @@ This project intentionally implements a strict, DNS-oriented subset of Adblock P
 
 ### Supported subset
 
-| Rule family | Accepted examples | Behavior in `coredns-regfilter` |
+| Rule family | Accepted examples | Behavior in `filterlist` |
 |-------------|-------------------|----------------------------------|
 | Basic host-based blocking rules | `\|\|example.com^`, `\|\|sub.example.com^` | Parsed into blocking domain patterns |
 | Exception rules | `@@\|\|example.com^`, `@@example.com` | Parsed into allow rules; allowlist wins over denylist |
@@ -214,32 +214,32 @@ Those tests assert that:
 
 ## Metrics
 
-All metrics are exported with the `coredns_regfilter_` prefix through the CoreDNS Prometheus endpoint.
+All metrics are exported with the `coredns_filterlist_` prefix through the CoreDNS Prometheus endpoint.
 
 ### Counters and Gauges
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `coredns_regfilter_allowlist_checks_total` | Counter | Number of queries evaluated against the allowlist matcher |
-| `coredns_regfilter_denylist_checks_total` | Counter | Number of queries evaluated against the denylist matcher |
-| `coredns_regfilter_allowlist_hits_total` | Counter | Number of queries accepted because the allowlist matched |
-| `coredns_regfilter_denylist_hits_total` | Counter | Number of queries blocked because the denylist matched |
-| `coredns_regfilter_compile_errors_total` | Counter | Number of failed filter load or compile runs |
-| `coredns_regfilter_allowlist_rules` | Gauge | Current number of supported allowlist rules loaded into the active snapshot |
-| `coredns_regfilter_denylist_rules` | Gauge | Current number of supported denylist rules loaded into the active snapshot |
-| `coredns_regfilter_last_compile_timestamp_seconds` | Gauge | Unix timestamp of the most recent successful compilation |
-| `coredns_regfilter_last_compile_duration_seconds` | Gauge | Duration in seconds of the most recent successful compilation |
+| `coredns_filterlist_allowlist_checks_total` | Counter | Number of queries evaluated against the allowlist matcher |
+| `coredns_filterlist_denylist_checks_total` | Counter | Number of queries evaluated against the denylist matcher |
+| `coredns_filterlist_allowlist_hits_total` | Counter | Number of queries accepted because the allowlist matched |
+| `coredns_filterlist_denylist_hits_total` | Counter | Number of queries blocked because the denylist matched |
+| `coredns_filterlist_compile_errors_total` | Counter | Number of failed filter load or compile runs |
+| `coredns_filterlist_allowlist_rules` | Gauge | Current number of supported allowlist rules loaded into the active snapshot |
+| `coredns_filterlist_denylist_rules` | Gauge | Current number of supported denylist rules loaded into the active snapshot |
+| `coredns_filterlist_last_compile_timestamp_seconds` | Gauge | Unix timestamp of the most recent successful compilation |
+| `coredns_filterlist_last_compile_duration_seconds` | Gauge | Duration in seconds of the most recent successful compilation |
 
 ### Histograms and Summaries
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `coredns_regfilter_compile_duration_seconds` | Histogram | Distribution of matcher compilation durations across reloads |
-| `coredns_regfilter_match_duration_seconds` | Summary | Distribution of query matching latency, labeled by result |
+| `coredns_filterlist_compile_duration_seconds` | Histogram | Distribution of matcher compilation durations across reloads |
+| `coredns_filterlist_match_duration_seconds` | Summary | Distribution of query matching latency, labeled by result |
 
 ### `match_duration_seconds` Labels
 
-The `coredns_regfilter_match_duration_seconds` summary uses a `result` label with the following values:
+The `coredns_filterlist_match_duration_seconds` summary uses a `result` label with the following values:
 
 | Label value | Meaning |
 |-------------|---------|
@@ -259,15 +259,15 @@ The `coredns_regfilter_match_duration_seconds` summary uses a `result` label wit
 Typical Prometheus ratios look like this:
 
 ```promql
-rate(coredns_regfilter_allowlist_hits_total[5m])
+rate(coredns_filterlist_allowlist_hits_total[5m])
 /
-rate(coredns_regfilter_allowlist_checks_total[5m])
+rate(coredns_filterlist_allowlist_checks_total[5m])
 ```
 
 ```promql
-rate(coredns_regfilter_denylist_hits_total[5m])
+rate(coredns_filterlist_denylist_hits_total[5m])
 /
-rate(coredns_regfilter_denylist_checks_total[5m])
+rate(coredns_filterlist_denylist_checks_total[5m])
 ```
 
 ## Development
@@ -287,7 +287,7 @@ go test ./... -race -coverprofile=coverage.out -covermode=atomic
 go tool cover -html=coverage.out -o coverage.html
 
 # Run benchmarks
-go test -bench=. -benchmem ./pkg/automaton ./pkg/filterlist
+go test -bench=. -benchmem ./pkg/automaton ./pkg/listparser
 ```
 
 ## Architecture

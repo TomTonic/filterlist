@@ -1,5 +1,5 @@
 // Package blockloader reads all filter list files from a directory and
-// aggregates them into a unified slice of filterlist.Rule objects.
+// aggregates them into a unified slice of listparser.Rule objects.
 package blockloader
 
 import (
@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
+	"github.com/TomTonic/filterlist/pkg/listparser"
 )
 
 // LoadDirectory loads supported filter list files from dir and aggregates them.
@@ -18,14 +18,14 @@ import (
 // rule slice for all supported files, or an error when the directory itself
 // cannot be read. Callers typically use it during startup and hot reloads
 // before compiling the resulting rules into DFAs.
-func LoadDirectory(dir string, logger filterlist.Logger) ([]filterlist.Rule, error) {
+func LoadDirectory(dir string, logger listparser.Logger) ([]listparser.Rule, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("blockloader: read directory %s: %w", dir, err)
 	}
 
 	var (
-		allRules    []filterlist.Rule
+		allRules    []listparser.Rule
 		loadedFiles int
 		skippedExts int
 		failedFiles int
@@ -48,7 +48,7 @@ func LoadDirectory(dir string, logger filterlist.Logger) ([]filterlist.Rule, err
 
 		fullPath := filepath.Join(dir, name)
 
-		rules, err := filterlist.ParseFile(fullPath, logger)
+		rules, err := listparser.ParseFile(fullPath, logger)
 		if err != nil {
 			failedFiles++
 			if logger != nil {

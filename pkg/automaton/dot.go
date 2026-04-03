@@ -17,7 +17,7 @@ import (
 //
 // DumpDot returns an error when the receiver is nil or when writing to w
 // fails. It is intended for CLI debugging and offline inspection of compiled
-// filter behavior (see also the regfilter-check tool).
+// filter behavior (see also the filterlist-check tool).
 func (d *DFA) DumpDot(w io.Writer) error {
 	if d == nil {
 		return errors.New("nil DFA")

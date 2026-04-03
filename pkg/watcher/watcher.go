@@ -14,9 +14,9 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/TomTonic/coredns-regfilter/pkg/blockloader"
-	"github.com/TomTonic/coredns-regfilter/pkg/filterlist"
-	"github.com/TomTonic/coredns-regfilter/pkg/matcher"
+	"github.com/TomTonic/filterlist/pkg/blockloader"
+	"github.com/TomTonic/filterlist/pkg/listparser"
+	"github.com/TomTonic/filterlist/pkg/matcher"
 )
 
 // Logger is a minimal logging interface.
@@ -419,7 +419,7 @@ func isUnder(path, dir string) bool {
 // conversion. Whitelist directories use the @@-prefixed rules by default
 // (AdGuard semantics: @@ = allow); when invertWhitelist is true, non-@@
 // rules are used instead (simpler ||domain^ syntax).
-func filterRulesForList(rules []filterlist.Rule, label string, invertAllowlist bool) []filterlist.Rule {
+func filterRulesForList(rules []listparser.Rule, label string, invertAllowlist bool) []listparser.Rule {
 	switch label {
 	case "denylist":
 		return keepRules(rules, false)
@@ -434,8 +434,8 @@ func filterRulesForList(rules []filterlist.Rule, label string, invertAllowlist b
 }
 
 // keepRules returns the subset of rules whose IsAllow field equals wantAllow.
-func keepRules(rules []filterlist.Rule, wantAllow bool) []filterlist.Rule {
-	filtered := make([]filterlist.Rule, 0, len(rules))
+func keepRules(rules []listparser.Rule, wantAllow bool) []listparser.Rule {
+	filtered := make([]listparser.Rule, 0, len(rules))
 	for _, r := range rules {
 		if r.IsAllow == wantAllow {
 			filtered = append(filtered, r)
@@ -446,7 +446,7 @@ func keepRules(rules []filterlist.Rule, wantAllow bool) []filterlist.Rule {
 
 // ruleSources extracts the Source strings from rules so callers can map
 // DFA rule IDs back to file and line information for debug output.
-func ruleSources(rules []filterlist.Rule) []string {
+func ruleSources(rules []listparser.Rule) []string {
 	sources := make([]string, len(rules))
 	for i, r := range rules {
 		sources[i] = r.Source
@@ -456,7 +456,7 @@ func ruleSources(rules []filterlist.Rule) []string {
 
 // rulePatterns extracts the Pattern strings from rules so callers can show
 // the original filter expression alongside the source location in debug output.
-func rulePatterns(rules []filterlist.Rule) []string {
+func rulePatterns(rules []listparser.Rule) []string {
 	patterns := make([]string, len(rules))
 	for i, r := range rules {
 		patterns[i] = r.Pattern
@@ -464,7 +464,7 @@ func rulePatterns(rules []filterlist.Rule) []string {
 	return patterns
 }
 
-// filterlistLogger adapts our Logger to filterlist.Logger.
+// filterlistLogger adapts our Logger to listparser.Logger.
 type filterlistLogger struct {
 	l Logger
 }
