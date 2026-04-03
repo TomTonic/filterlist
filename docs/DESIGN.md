@@ -124,6 +124,28 @@ That distinction matters because:
 The plugin emits a startup warning when it detects that `forward` appears
 before `filterlist` in the constructed handler chain.
 
+## Compatibility
+
+This plugin is intended to follow CoreDNS plugin development guidelines and
+relevant DNS name standards to ensure interoperability. In particular, the
+project follows the CoreDNS plugin guidance and documentation:
+
+- https://coredns.io/2017/03/01/how-to-add-plugins-to-coredns/
+- https://github.com/coredns/coredns/blob/master/plugin.md#documentation
+
+The implementation also adheres to Internet standards for domain names and
+internationalized domain names (IDNA), so parsed and emitted names remain
+interoperable with DNS servers and clients. Relevant references include:
+
+- DNS names and message format — RFC 1035
+  (https://datatracker.ietf.org/doc/html/rfc1035)
+- IDNA / Internationalized Domain Names — RFC 5890–5894 (for example:
+  https://datatracker.ietf.org/doc/html/rfc5890)
+
+Parser and normalization behavior (including Punycode/IDNA conversion) should
+conform to these standards; any deliberate deviation must be documented and
+justified.
+
 ## Rule Ingestion and Selection
 
 ### File Loading
