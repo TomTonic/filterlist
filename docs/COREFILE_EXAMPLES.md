@@ -139,10 +139,10 @@ With `debug` enabled, every DNS query produces a log line at `[INFO]` level show
 [INFO] plugin/filterlist: no match name=clean.example.com
 ```
 
-The same rule tracing is available offline with the CLI tool:
+Offline list validation is available with the CLI tool:
 
 ```bash
-./build/filterlist-check match --denylist /etc/coredns/denylist.d --name ads.example.com
+./build/filterlist-check validate --list /etc/coredns/denylist.d
 ```
 
 ## Inverted Allowlist Syntax

@@ -293,9 +293,15 @@ This is why the snapshot contains more than just the matcher pointer.
 | `max_states` | 200000 | Bounds wildcard DFA size to limit memory growth |
 | `compile_timeout` | `30s` | Bounds per-directory compile time |
 | `debounce` | `300ms` | Coalesces bursts of file changes |
+| parser max line length | `8192` bytes | Bounds per-line parse memory and rejects oversized lines |
+| parser max lines per file | `200000` | Bounds per-file parse workload and rejects oversized files |
 
 These limits are operational safeguards. They are not intended to make every
 pathological filter list safe, but they keep failure modes bounded and visible.
+
+Setting `max_states=0` disables wildcard DFA state capping. The plugin allows
+this mode for advanced scenarios and logs a startup warning because memory use
+can grow significantly on wildcard-heavy lists.
 
 ## Performance Characteristics
 

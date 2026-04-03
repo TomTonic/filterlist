@@ -19,7 +19,7 @@ That makes whitelist precedence explicit and keeps per-query matching on the hot
 - **Whitelist precedence**: Whitelisted domains are always allowed, even if blacklisted
 - **Multiple block actions**: NXDOMAIN, REFUSE, or null IP responses
 - **Observability**: Prometheus metrics and structured logging
-- **CLI tool**: Offline validation, matching, and DOT graph export
+- **CLI tool**: Offline list validation and compile checks
 
 ## How It Works
 
@@ -74,7 +74,7 @@ This produces a `coredns` binary that includes the `filterlist` plugin.
 go build -o build/filterlist-check ./cmd/filterlist-check
 ```
 
-This produces the helper CLI at `./build/filterlist-check`. The CLI is optional and useful for validating lists and debugging rule behavior outside of CoreDNS.
+This produces the helper CLI at `./build/filterlist-check`. The CLI is optional and focused on validating list directories outside CoreDNS.
 
 ### Corefile Configuration
 
@@ -104,16 +104,10 @@ In that configuration:
 
 ```bash
 # Validate filter lists
-./build/filterlist-check validate --allowlist testdata/filterlists/allowlist --denylist testdata/filterlists/denylist
-
-# Check a specific domain
-./build/filterlist-check match --denylist testdata/filterlists/denylist --name ads.example.com
-
-# Export DFA as DOT graph
-./build/filterlist-check dump-dot --denylist testdata/filterlists/denylist --out allowlist.dot,denylist.dot
+./build/filterlist-check validate --list testdata/filterlists/allowlist --list testdata/filterlists/denylist
 ```
 
-The CLI is useful for validating large lists before deploying them into CoreDNS, checking whether a particular name matches, and inspecting the generated automata when you need to troubleshoot rule behavior.
+The CLI is useful for validating large lists before deploying them into CoreDNS and verifying that parsing plus matcher compilation succeed.
 
 ## Supported Filter Syntax
 
@@ -181,7 +175,7 @@ Those tests assert that:
 | `nullip` | `0.0.0.0` | IPv4 address for `nullip` action |
 | `nullip6` | `::` | IPv6 address for `nullip` action |
 | `debounce` | `300ms` | Debounce duration for file change events |
-| `max_states` | `200000` | Maximum wildcard DFA states (limits memory) |
+| `max_states` | `200000` | Maximum wildcard DFA states (limits memory); set `0` to disable this cap |
 | `compile_timeout` | `30s` | Maximum compile duration |
 | `ttl` | `3600` | TTL for blocked responses (nullip) |
 | `debug` | `false` | Log per-query match details (list, name, rule source, pattern) |
@@ -203,6 +197,8 @@ Those tests assert that:
 - `nullip6` configures the IPv6 sinkhole address.
 - `ttl` is only relevant for `nullip` answers.
 - `debounce`, `max_states`, and `compile_timeout` are operational safeguards for large or volatile filter sets.
+- `max_states 0` disables DFA state capping for wildcard compilation. The plugin logs a warning at startup when uncapped mode is configured.
+- List parser safety limits are enforced per file: maximum physical line length is `8192` bytes and maximum line count is `200000`. Files exceeding those limits are rejected and logged.
 - `debug` enables per-query log lines showing the matching list (allowlist or denylist), the queried name, the source file and line number, and the original rule pattern. Useful for verifying that rules behave as expected. The output appears at the `[INFO]` level in the CoreDNS log.
 
 ## Query Flow
