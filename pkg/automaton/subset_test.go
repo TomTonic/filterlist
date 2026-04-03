@@ -17,17 +17,11 @@ import (
 // It asserts that each state ID occupies a fixed-width slot and that byte-like
 // values such as 0xfe,0x0d and 0x0f,0xed produce different concatenated keys.
 func TestMakeSetKeyUsesFixedWidthEncoding(t *testing.T) {
-	left := []int{0xfe, 0x0d}
-	right := []int{0x0f, 0xed}
+	left := []uint32{0xfe, 0x0d}
+	right := []uint32{0x0f, 0xed}
 	var buf []byte
-	leftKey, err := makeSetKey(&buf, left)
-	if err != nil {
-		t.Fatalf("makeSetKey(%v) error = %v", left, err)
-	}
-	rightKey, err := makeSetKey(&buf, right)
-	if err != nil {
-		t.Fatalf("makeSetKey(%v) error = %v", right, err)
-	}
+	leftKey := makeSetKey(&buf, left)
+	rightKey := makeSetKey(&buf, right)
 
 	if len(leftKey) != 8 {
 		t.Fatalf("len(makeSetKey(%v)) = %d, want 8", left, len(leftKey))
@@ -42,16 +36,17 @@ func TestMakeSetKeyUsesFixedWidthEncoding(t *testing.T) {
 	}
 }
 
-// TestMakeSetKeyRejectsOutOfRangeStates verifies that invalid internal state
-// IDs fail fast in the automaton package instead of silently aliasing a valid
-// DFA subset key.
+// TestMakeSetKeyLargeValues verifies that large uint32 state IDs are encoded
+// correctly in the automaton package.
 //
 // This test covers the fixed-width key encoder used during subset construction.
 //
-// It asserts that negative state IDs are rejected with an error.
-func TestMakeSetKeyRejectsOutOfRangeStates(t *testing.T) {
+// It asserts that the maximum uint32 value is encoded correctly.
+func TestMakeSetKeyLargeValues(t *testing.T) {
 	var buf []byte
-	if _, err := makeSetKey(&buf, []int{-1}); err == nil {
-		t.Fatal("makeSetKey should reject negative state ids")
+	key := makeSetKey(&buf, []uint32{0xFFFFFFFF})
+	want := string([]byte{0xff, 0xff, 0xff, 0xff})
+	if key != want {
+		t.Fatalf("makeSetKey(0xFFFFFFFF) = % x, want % x", []byte(key), []byte(want))
 	}
 }

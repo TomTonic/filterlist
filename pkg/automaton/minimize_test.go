@@ -2,7 +2,7 @@ package automaton
 
 import (
 	"fmt"
-	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -10,28 +10,46 @@ import (
 // Partition refinement (Hopcroft)
 // ---------------------------------------------------------------------------
 
-// TestSplitPartitionKeepsStableOrder verifies that users always see a
-// deterministic automaton layout in the automaton package by asserting that
-// partition refinement produces a stable split order.
-func TestSplitPartitionKeepsStableOrder(t *testing.T) {
-	md := &intermediateDFA{states: make([]intermediateDFAState, 6)}
-	for i := range md.states {
-		md.states[i] = newIntermediateDFAState(false, nil)
+// TestSplitPartitionGroupsEquivalentStates verifies that users always get a
+// correctly minimised automaton in the automaton package by asserting that
+// partition refinement groups states with identical transition signatures
+// into the same partition.
+func TestSplitPartitionGroupsEquivalentStates(t *testing.T) {
+	md := &intermediateDFA{
+		trans:   make([]uint32, 6*AlphabetSize),
+		accept:  make([]bool, 6),
+		ruleIDs: make(map[int][]uint32),
+	}
+	for i := range md.trans {
+		md.trans[i] = noTransitionState
 	}
 
-	aIndex := runeToIndex('a')
-	md.states[0].trans[aIndex] = 4
-	md.states[1].trans[aIndex] = 5
-	md.states[2].trans[aIndex] = 4
-	md.states[3].trans[aIndex] = 5
+	aIndex := int(runeToIndex('a'))
+	md.trans[0*AlphabetSize+aIndex] = 4
+	md.trans[1*AlphabetSize+aIndex] = 5
+	md.trans[2*AlphabetSize+aIndex] = 4
+	md.trans[3*AlphabetSize+aIndex] = 5
 
 	partition := []int{0, 1, 2, 3}
 	stateToPartition := []uint32{0, 0, 0, 0, 1, 2}
 
 	got := splitPartition(md, partition, stateToPartition)
+
+	// Normalise: sort each inner slice, then sort the outer slice by first
+	// element, so the comparison is independent of grouping order.
+	for _, g := range got {
+		slices.Sort(g)
+	}
+	slices.SortFunc(got, func(a, b []int) int { return a[0] - b[0] })
+
 	want := [][]int{{0, 2}, {1, 3}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("splitPartition() = %v, want %v", got, want)
+	if len(got) != len(want) {
+		t.Fatalf("splitPartition() returned %d groups, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if !slices.Equal(got[i], want[i]) {
+			t.Fatalf("splitPartition() group %d = %v, want %v", i, got[i], want[i])
+		}
 	}
 }
 

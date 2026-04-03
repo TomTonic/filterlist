@@ -206,9 +206,8 @@ func combineNFAs(nfas []*nfa) (*nfa, error) {
 type closureScratch struct {
 	marks  []uint32 // indexed by NFA state ID; entry == stamp means "visited"
 	stamp  uint32   // current generation; incremented per closure call
-	stack  []int    // DFS traversal stack (reused across calls)
-	result []int    // sorted closure output (reused across calls)
-	keyBuf []byte   // scratch buffer for [makeSetKey]
+	stack  []uint32 // DFS traversal stack (reused across calls)
+	result []uint32 // sorted closure output (reused across calls)
 }
 
 // newClosureScratch preallocates reusable state for repeated epsilon closures.
@@ -225,7 +224,7 @@ func newClosureScratch(stateCount int) *closureScratch {
 //
 // The returned slice is sorted and backed by cs.result (shared across calls).
 // Callers must consume or clone it before the next call.
-func epsilonClosure(cs *closureScratch, n *nfa, states []int) []int {
+func epsilonClosure(cs *closureScratch, n *nfa, states []uint32) []uint32 {
 	cs.stamp++
 	if cs.stamp == 0 {
 		// Stamp wrapped around — reset all marks.
@@ -253,7 +252,7 @@ func epsilonClosure(cs *closureScratch, n *nfa, states []int) []int {
 				continue
 			}
 			cs.marks[t] = cs.stamp
-			stack = append(stack, int(t))
+			stack = append(stack, t)
 		}
 	}
 

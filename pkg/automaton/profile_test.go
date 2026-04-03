@@ -99,7 +99,7 @@ func profileCompile(t *testing.T, patterns []Pattern) {
 
 	total := time.Since(start)
 	t.Logf("Rules: %d, NFA states: %d, DFA states (before min): %d, DFA states (after min): %d",
-		len(patterns), len(combined.states), len(md.states), dfa.StateCount())
+		len(patterns), len(combined.states), md.stateCount(), dfa.StateCount())
 	t.Logf("Phase timings:")
 	t.Logf("  NFA build:      %12v (%5.1f%%)", nfaBuild, 100*float64(nfaBuild)/float64(total))
 	t.Logf("  NFA combine:    %12v (%5.1f%%)", combineTime, 100*float64(combineTime)/float64(total))

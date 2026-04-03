@@ -12,10 +12,10 @@ import (
 // operators see what is happening during potentially long compilations.
 // A nil Logger is safe — [Compile] silences output in that case.
 type Logger interface {
-	Infof(format string, args ...interface{})
+	Infof(format string, args ...any)
 }
 
-func nopLogf(string, ...interface{}) {}
+func nopLogf(string, ...any) {}
 
 // CompileOptions controls the DFA compilation pipeline.
 //
@@ -93,7 +93,7 @@ func Compile(patterns []Pattern, opts CompileOptions) (*DFA, error) {
 	}
 
 	// Phase 1: Build per-pattern NFAs.
-	logf("automaton: building %d NFAs...", len(patterns))
+	logf("compiling automaton: building per-pattern NFAs...")
 	nfaStart := time.Now()
 	nfas := make([]*nfa, 0, len(patterns))
 	for i, p := range patterns {
@@ -107,7 +107,7 @@ func Compile(patterns []Pattern, opts CompileOptions) (*DFA, error) {
 		}
 		nfas = append(nfas, n)
 	}
-	logf("automaton: NFA build: %v", time.Since(nfaStart))
+	logf("compiling automaton: %d NFAs build: %v (2%% done)", len(nfas), time.Since(nfaStart))
 
 	// Phase 2: Combine into single NFA.
 	combineStart := time.Now()
@@ -115,30 +115,31 @@ func Compile(patterns []Pattern, opts CompileOptions) (*DFA, error) {
 	if err != nil {
 		return nil, err
 	}
-	logf("automaton: NFA combine: %v (%d NFA states)", time.Since(combineStart), len(combined.states))
+	logf("compiling automaton: combined NFAs (%d total states): %v (4%% done)", len(combined.states), time.Since(combineStart))
 
 	// Phase 3: Subset construction (NFA → intermediate DFA).
-	logf("automaton: starting subset construction...")
+	logf("compiling automaton: starting subset construction...")
 	subsetStart := time.Now()
 	md, err := subsetConstruction(combined, opts.MaxStates, deadline)
 	if err != nil {
 		return nil, err
 	}
-	logf("automaton: subset construction: %v (%d DFA states)", time.Since(subsetStart), len(md.states))
+	logf("compiling automaton: subset construction (%d DFA states): %v (33%% done)", md.stateCount(), time.Since(subsetStart))
 
 	// Phase 4: Hopcroft minimization.
 	if shouldMinimize(opts) {
-		logf("automaton: starting Hopcroft minimization (%d states)...", len(md.states))
+		logf("compiling automaton: starting Hopcroft minimization...")
 		hopcroftStart := time.Now()
-		beforeStates := len(md.states)
+		beforeStates := md.stateCount()
 		md = hopcroftMinimize(md)
-		logf("automaton: Hopcroft minimization: %v (%d → %d states)",
-			time.Since(hopcroftStart), beforeStates, len(md.states))
+		logf("compiling automaton: Hopcroft minimization (%d → %d states): %v (84%% done)", beforeStates, md.stateCount(), time.Since(hopcroftStart))
+	} else {
+		logf("compiling automaton: skipping Hopcroft minimization (84%% done)")
 	}
 
 	// Phase 5: Convert to pointer-based DFA.
+	logf("compiling automaton: converting to runtime DFA...")
 	dfa := md.toDFA()
-	logf("automaton: compiled %d patterns in %v (%d DFA states)",
-		len(patterns), time.Since(started), dfa.StateCount())
+	logf("compiling automaton: compiled %d patterns in %v (100%% done), final DFA has %d states", len(patterns), time.Since(started), dfa.StateCount())
 	return dfa, nil
 }

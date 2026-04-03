@@ -1,5 +1,10 @@
 package automaton
 
+import (
+	"runtime"
+	"sync"
+)
+
 // DFAState is one state in the compiled deterministic finite automaton.
 //
 // Transitions are stored in a fixed-size array indexed by [runeToIndex],
@@ -79,24 +84,55 @@ func (d *DFA) StateCount() int {
 //
 // The conversion allocates all [DFAState] values in a single contiguous slice
 // and then patches transition entries to point directly into that slice.
-// This two-pass approach (first allocate, then link) produces a DFA whose
-// transitions are bare pointers — exactly one dereference per input rune.
+// For large state counts the patching work is distributed across goroutines,
+// where each goroutine processes a disjoint chunk of the state slice.
 func (md *intermediateDFA) toDFA() *DFA {
-	d := &DFA{states: make([]DFAState, len(md.states))}
+	n := md.stateCount()
+	d := &DFA{states: make([]DFAState, n)}
 
-	// Pass 1: copy accept flags and rule IDs.
-	for i := range md.states {
-		ms := &md.states[i]
-		d.states[i].Accept = ms.accept
-		d.states[i].RuleIDs = ms.ruleIDs
+	if n == 0 {
+		return d
 	}
 
-	// Pass 2: patch transition pointers into the contiguous slice.
-	for i := range md.states {
-		ms := &md.states[i]
-		for idx, target := range ms.trans {
-			if target != noTransitionState {
-				d.states[i].Trans[idx] = &d.states[target]
+	numWorkers := runtime.GOMAXPROCS(0)
+
+	if n >= numWorkers*64 && numWorkers > 1 {
+		chunkSize := (n + numWorkers - 1) / numWorkers
+		var wg sync.WaitGroup
+		for w := range numWorkers {
+			lo := w * chunkSize
+			if lo >= n {
+				break
+			}
+			hi := min(lo+chunkSize, n)
+			wg.Add(1)
+			go func(lo, hi int) {
+				defer wg.Done()
+				for i := lo; i < hi; i++ {
+					ds := &d.states[i]
+					ds.Accept = md.accept[i]
+					ds.RuleIDs = md.ruleIDs[i]
+					trans := md.stateTrans(i)
+					for idx, target := range trans {
+						if target != noTransitionState {
+							ds.Trans[idx] = &d.states[target]
+						}
+					}
+				}
+			}(lo, hi)
+		}
+		wg.Wait()
+	} else {
+		for i := range n {
+			d.states[i].Accept = md.accept[i]
+			d.states[i].RuleIDs = md.ruleIDs[i]
+		}
+		for i := range n {
+			trans := md.stateTrans(i)
+			for idx, target := range trans {
+				if target != noTransitionState {
+					d.states[i].Trans[idx] = &d.states[target]
+				}
 			}
 		}
 	}
