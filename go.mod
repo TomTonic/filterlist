@@ -1,8 +1,9 @@
 module github.com/TomTonic/filterlist
 
-go 1.25.0
+go 1.25.5
 
 require (
+	github.com/TomTonic/rtcompare v0.5.1
 	github.com/coredns/caddy v1.1.4
 	github.com/coredns/coredns v1.14.2
 	github.com/fsnotify/fsnotify v1.9.0
