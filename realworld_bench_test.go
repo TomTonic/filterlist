@@ -14,9 +14,9 @@ var benchmarkAutomaton *automaton.DFA
 
 const realisticBenchmarkMaxStates = 0
 
-// loadRealisticBlacklistRules combines the two sample filter lists from
-// testdata/filterlists into one blacklist-style rule set.
-func loadRealisticBlacklistRules(tb testing.TB) []filterlist.Rule {
+// loadRealisticDenylistRules combines the two sample filter lists from
+// testdata/filterlists into one denylist-style rule set.
+func loadRealisticDenylistRules(tb testing.TB) []filterlist.Rule {
 	tb.Helper()
 
 	logger := &testLogger{}
@@ -44,13 +44,13 @@ func loadRealisticBlacklistRules(tb testing.TB) []filterlist.Rule {
 	return filtered
 }
 
-// loadRealisticBlacklistPatterns converts the two sample filter lists into one
+// loadRealisticDenylistPatterns converts the two sample filter lists into one
 // pure-automaton pattern set so benchmarks can measure DFA construction without
 // the hybrid suffix-map split used by the matcher package.
-func loadRealisticBlacklistPatterns(tb testing.TB) []automaton.Pattern {
+func loadRealisticDenylistPatterns(tb testing.TB) []automaton.Pattern {
 	tb.Helper()
 
-	rules := loadRealisticBlacklistRules(tb)
+	rules := loadRealisticDenylistRules(tb)
 	patterns := make([]automaton.Pattern, 0, len(rules))
 	for i, rule := range rules {
 		patterns = append(patterns, automaton.Pattern{
@@ -62,11 +62,11 @@ func loadRealisticBlacklistPatterns(tb testing.TB) []automaton.Pattern {
 	return patterns
 }
 
-// BenchmarkCompileRealisticBlacklist measures DFA compilation for the two large
-// example lists after parsing and blacklist-style rule selection have already
+// BenchmarkCompileRealisticDenylist measures DFA compilation for the two large
+// example lists after parsing and denylist-style rule selection have already
 // completed.
-func BenchmarkCompileRealisticBlacklist(b *testing.B) {
-	rules := loadRealisticBlacklistRules(b)
+func BenchmarkCompileRealisticDenylist(b *testing.B) {
+	rules := loadRealisticDenylistRules(b)
 	baseline, err := matcher.CompileRules(rules, matcher.CompileOptions{MaxStates: realisticBenchmarkMaxStates})
 	if err != nil {
 		b.Fatalf("CompileRules error: %v", err)
@@ -86,11 +86,11 @@ func BenchmarkCompileRealisticBlacklist(b *testing.B) {
 	}
 }
 
-// BenchmarkCompileRealisticBlacklistPureAutomaton measures compilation of the
-// same blacklist sample lists when all blacklist patterns are forced through
+// BenchmarkCompileRealisticDenylistPureAutomaton measures compilation of the
+// same denylist sample lists when all denylist patterns are forced through
 // the automaton package instead of the hybrid matcher split.
-func BenchmarkCompileRealisticBlacklistPureAutomaton(b *testing.B) {
-	patterns := loadRealisticBlacklistPatterns(b)
+func BenchmarkCompileRealisticDenylistPureAutomaton(b *testing.B) {
+	patterns := loadRealisticDenylistPatterns(b)
 	baseline, err := automaton.Compile(patterns, automaton.CompileOptions{MaxStates: realisticBenchmarkMaxStates})
 	if err != nil {
 		b.Fatalf("Compile error: %v", err)
@@ -110,10 +110,10 @@ func BenchmarkCompileRealisticBlacklistPureAutomaton(b *testing.B) {
 	}
 }
 
-// BenchmarkParseAndCompileRealisticBlacklist measures the end-to-end cost of
-// parsing both sample lists, selecting blacklist rules, and compiling the DFA.
-func BenchmarkParseAndCompileRealisticBlacklist(b *testing.B) {
-	rules := loadRealisticBlacklistRules(b)
+// BenchmarkParseAndCompileRealisticDenylist measures the end-to-end cost of
+// parsing both sample lists, selecting denylist rules, and compiling the DFA.
+func BenchmarkParseAndCompileRealisticDenylist(b *testing.B) {
+	rules := loadRealisticDenylistRules(b)
 	baseline, err := matcher.CompileRules(rules, matcher.CompileOptions{MaxStates: realisticBenchmarkMaxStates})
 	if err != nil {
 		b.Fatalf("CompileRules error: %v", err)
@@ -125,7 +125,7 @@ func BenchmarkParseAndCompileRealisticBlacklist(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		rules := loadRealisticBlacklistRules(b)
+		rules := loadRealisticDenylistRules(b)
 		dfa, compileErr := matcher.CompileRules(rules, matcher.CompileOptions{MaxStates: realisticBenchmarkMaxStates})
 		if compileErr != nil {
 			b.Fatalf("CompileRules error: %v", compileErr)
