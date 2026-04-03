@@ -3,9 +3,9 @@
 //
 // Usage:
 //
-//	regfilter-check validate --whitelist DIR --blacklist DIR
-//	regfilter-check match --whitelist DIR --blacklist DIR --name example.com
-//	regfilter-check dump-dot --whitelist DIR --blacklist DIR --out whitelist.dot,blacklist.dot
+//	regfilter-check validate --allowlist DIR --denylist DIR
+//	regfilter-check match --allowlist DIR --denylist DIR --name example.com
+//	regfilter-check dump-dot --allowlist DIR --denylist DIR --out allowlist.dot,denylist.dot
 package main
 
 import (
@@ -55,15 +55,15 @@ func usage(stderr io.Writer) {
 
 Commands:
   validate   Load directories, compile DFAs, print summary
-  match      Check if a name is whitelisted, blacklisted, or allowed
+	match      Check if a name is allowlisted, denylisted, or allowed
   dump-dot   Write DFAs as Graphviz DOT files
 
 Flags (all commands):
-  --whitelist DIR    Whitelist filter directory
-  --blacklist DIR    Blacklist filter directory
+	--allowlist DIR    Allowlist filter directory
+	--denylist DIR     Denylist filter directory
 
 Match-specific:
-  --invert-whitelist   Use ||domain^ (not @@) for whitelist entries
+	--invert-allowlist   Use ||domain^ (not @@) for allowlist entries
 
 Dump-dot-specific:
   --out WL.dot,BL.dot   Output file paths (default: whitelist.dot,blacklist.dot)`)
@@ -88,10 +88,10 @@ func (l cliLogger) Infof(format string, args ...interface{}) {
 func cmdValidate(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	wlDir := fs.String("whitelist", "", "whitelist directory")
-	blDir := fs.String("blacklist", "", "blacklist directory")
+	wlDir := fs.String("allowlist", "", "allowlist directory")
+	blDir := fs.String("denylist", "", "denylist directory")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
-	invertWL := fs.Bool("invert-whitelist", false, "use ||domain^ (not @@) for whitelist entries")
+	invertAL := fs.Bool("invert-allowlist", false, "use ||domain^ (not @@) for allowlist entries")
 	if err := fs.Parse(args); err != nil {
 		writef(stderr, "validate parse error: %v\n", err)
 		return 1
@@ -104,8 +104,8 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 		label string
 		dir   string
 	}{
-		{"whitelist", *wlDir},
-		{"blacklist", *blDir},
+		{"allowlist", *wlDir},
+		{"denylist", *blDir},
 	} {
 		if item.dir == "" {
 			writef(stdout, "[%s] no directory specified, skipping\n", item.label)
@@ -120,7 +120,7 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 
-		rules = filterRulesForList(rules, item.label, *invertWL)
+		rules = filterRulesForList(rules, item.label, *invertAL)
 
 		writef(stdout, "[%s] parsed %d rules\n", item.label, len(rules))
 		if len(rules) == 0 {
@@ -144,11 +144,11 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 func cmdMatch(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("match", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	wlDir := fs.String("whitelist", "", "whitelist directory")
-	blDir := fs.String("blacklist", "", "blacklist directory")
+	wlDir := fs.String("allowlist", "", "allowlist directory")
+	blDir := fs.String("denylist", "", "denylist directory")
 	name := fs.String("name", "", "domain name to check")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
-	invertWL := fs.Bool("invert-whitelist", false, "use ||domain^ (not @@) for whitelist entries")
+	invertAL := fs.Bool("invert-allowlist", false, "use ||domain^ (not @@) for allowlist entries")
 	if err := fs.Parse(args); err != nil {
 		writef(stderr, "match parse error: %v\n", err)
 		return 1
@@ -177,7 +177,7 @@ func cmdMatch(args []string, stdout, stderr io.Writer) int {
 			writef(stderr, "load error: %v\n", err)
 			return listInfo{}
 		}
-		rules = filterRulesForList(rules, label, *invertWL)
+		rules = filterRulesForList(rules, label, *invertAL)
 		if len(rules) == 0 {
 			return listInfo{}
 		}
@@ -195,15 +195,15 @@ func cmdMatch(args []string, stdout, stderr io.Writer) int {
 		return listInfo{m: m, sources: sources, patterns: patterns}
 	}
 
-	wl := loadList(*wlDir, "whitelist")
-	bl := loadList(*blDir, "blacklist")
+	wl := loadList(*wlDir, "allowlist")
+	bl := loadList(*blDir, "denylist")
 
 	writef(stdout, "checking: %s\n", normalized)
 
 	if wl.m != nil {
 		matched, ruleIDs := wl.m.Match(normalized)
 		if matched {
-			writef(stdout, "result: WHITELISTED")
+			writef(stdout, "result: ALLOWLISTED")
 			writeRuleDetail(stdout, ruleIDs, wl.sources, wl.patterns)
 			writeln(stdout, "")
 			return 0
@@ -213,7 +213,7 @@ func cmdMatch(args []string, stdout, stderr io.Writer) int {
 	if bl.m != nil {
 		matched, ruleIDs := bl.m.Match(normalized)
 		if matched {
-			writef(stdout, "result: BLACKLISTED")
+			writef(stdout, "result: DENYLISTED")
 			writeRuleDetail(stdout, ruleIDs, bl.sources, bl.patterns)
 			writeln(stdout, "")
 			return 1
@@ -247,9 +247,9 @@ func writeRuleDetail(w io.Writer, ruleIDs []uint32, sources, patterns []string) 
 func cmdDumpDot(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("dump-dot", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	wlDir := fs.String("whitelist", "", "whitelist directory")
-	blDir := fs.String("blacklist", "", "blacklist directory")
-	out := fs.String("out", "whitelist.dot,blacklist.dot", "output files (comma-separated)")
+	wlDir := fs.String("allowlist", "", "allowlist directory")
+	blDir := fs.String("denylist", "", "denylist directory")
+	out := fs.String("out", "allowlist.dot,denylist.dot", "output files (comma-separated)")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states")
 	if err := fs.Parse(args); err != nil {
 		writef(stderr, "dump-dot parse error: %v\n", err)
@@ -257,8 +257,8 @@ func cmdDumpDot(args []string, stdout, stderr io.Writer) int {
 	}
 
 	outFiles := strings.SplitN(*out, ",", 2)
-	wlOut := "whitelist.dot"
-	blOut := "blacklist.dot"
+	wlOut := "allowlist.dot"
+	blOut := "denylist.dot"
 	if len(outFiles) >= 1 {
 		wlOut = strings.TrimSpace(outFiles[0])
 	}
@@ -273,8 +273,8 @@ func cmdDumpDot(args []string, stdout, stderr io.Writer) int {
 		dir    string
 		output string
 	}{
-		{"whitelist", *wlDir, wlOut},
-		{"blacklist", *blDir, blOut},
+		{"allowlist", *wlDir, wlOut},
+		{"denylist", *blDir, blOut},
 	} {
 		if item.dir == "" {
 			continue
@@ -345,12 +345,12 @@ func shortSource(source string) string {
 // filterRulesForList selects the subset of rules appropriate for the given list
 // label. Blacklist directories exclude @@ (exception) rules; whitelist
 // directories keep only @@ rules by default or non-@@ rules when inverted.
-func filterRulesForList(rules []filterlist.Rule, label string, invertWhitelist bool) []filterlist.Rule {
+func filterRulesForList(rules []filterlist.Rule, label string, invertAllowlist bool) []filterlist.Rule {
 	switch label {
-	case "blacklist":
+	case "denylist":
 		return keepRules(rules, false)
-	case "whitelist":
-		if invertWhitelist {
+	case "allowlist":
+		if invertAllowlist {
 			return keepRules(rules, false)
 		}
 		return keepRules(rules, true)

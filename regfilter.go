@@ -1,5 +1,5 @@
 // Package regfilter implements the CoreDNS regfilter plugin.
-// It intercepts DNS queries and checks them against whitelist and blacklist
+// It intercepts DNS queries and checks them against allowlist and denylist
 // DFAs, blocking or allowing queries according to configuration.
 package regfilter
 
@@ -38,22 +38,22 @@ type ActionConfig struct {
 
 // Config holds the complete regfilter runtime configuration.
 //
-// WhitelistDir and BlacklistDir point at directories containing supported
+// AllowlistDir and DenylistDir point at directories containing supported
 // filter list files. Action configures the DNS response for blocked names,
 // while Debounce, MaxStates, and CompileTimeout bound filesystem churn and DFA
-// compilation cost. InvertWhitelist controls which rules from the whitelist
+// compilation cost. InvertAllowlist controls which rules from the allowlist
 // directory are compiled: by default (false) only @@-prefixed exception rules
 // are used; when true, non-@@ rules (||domain^) are used instead.
 // Setup callers typically obtain Config via parseConfig.
 type Config struct {
-	WhitelistDir    string
-	BlacklistDir    string
+	AllowlistDir    string
+	DenylistDir     string
 	Action          ActionConfig
 	Debounce        time.Duration
 	MaxStates       int
 	CompileTimeout  time.Duration
 	Debug           bool
-	InvertWhitelist bool
+	InvertAllowlist bool
 }
 
 // RegFilter is the CoreDNS plugin handler.
@@ -66,12 +66,12 @@ type RegFilter struct {
 	Config  Config
 	metrics *metrics.Registry
 
-	whitelist  atomic.Value // *matcher.Matcher
-	blacklist  atomic.Value // *matcher.Matcher
-	wlSources  atomic.Value // []string
-	blSources  atomic.Value // []string
-	wlPatterns atomic.Value // []string
-	blPatterns atomic.Value // []string
+	allowlist  atomic.Value // *matcher.Matcher
+	denylist   atomic.Value // *matcher.Matcher
+	alSources  atomic.Value // []string
+	dlSources  atomic.Value // []string
+	alPatterns atomic.Value // []string
+	dlPatterns atomic.Value // []string
 
 	stopWatcher func() error
 }
@@ -82,31 +82,31 @@ type RegFilter struct {
 // failures and plugin ordering to this module.
 func (rf *RegFilter) Name() string { return "regfilter" }
 
-// SetWhitelist atomically installs m as the active whitelist matcher.
+// SetAllowlist atomically installs m as the active allowlist matcher.
 //
-// The m parameter may be nil to clear the whitelist after a successful reload
+// The m parameter may be nil to clear the allowlist after a successful reload
 // that produced no allow rules. Callers normally use this from watcher update
 // callbacks rather than directly from the DNS hot path.
-func (rf *RegFilter) SetWhitelist(m *matcher.Matcher) {
-	rf.whitelist.Store(m)
+func (rf *RegFilter) SetAllowlist(m *matcher.Matcher) {
+	rf.allowlist.Store(m)
 }
 
-// SetBlacklist atomically installs m as the active blacklist matcher.
+// SetDenylist atomically installs m as the active denylist matcher.
 //
-// The m parameter may be nil to clear the blacklist after a successful reload
+// The m parameter may be nil to clear the denylist after a successful reload
 // that produced no deny rules. This keeps readers lock-free while reload logic
 // swaps compiled matchers in the background.
-func (rf *RegFilter) SetBlacklist(m *matcher.Matcher) {
-	rf.blacklist.Store(m)
+func (rf *RegFilter) SetDenylist(m *matcher.Matcher) {
+	rf.denylist.Store(m)
 }
 
-// GetWhitelist returns the current whitelist matcher.
+// GetAllowlist returns the current allowlist matcher.
 //
-// The return value is nil when no whitelist has been compiled yet or when the
+// The return value is nil when no allowlist has been compiled yet or when the
 // last successful reload yielded no allow rules. ServeDNS uses this on every
-// query before consulting the blacklist.
-func (rf *RegFilter) GetWhitelist() *matcher.Matcher {
-	v := rf.whitelist.Load()
+// query before consulting the denylist.
+func (rf *RegFilter) GetAllowlist() *matcher.Matcher {
+	v := rf.allowlist.Load()
 	if v == nil {
 		return nil
 	}
@@ -118,13 +118,13 @@ func (rf *RegFilter) GetWhitelist() *matcher.Matcher {
 	return m
 }
 
-// GetBlacklist returns the current blacklist matcher.
+// GetDenylist returns the current denylist matcher.
 //
-// The return value is nil when no blacklist has been compiled yet or when the
+// The return value is nil when no denylist has been compiled yet or when the
 // currently loaded deny set is empty. Callers use the returned matcher as a
 // read-only structure and must not mutate it.
-func (rf *RegFilter) GetBlacklist() *matcher.Matcher {
-	v := rf.blacklist.Load()
+func (rf *RegFilter) GetDenylist() *matcher.Matcher {
+	v := rf.denylist.Load()
 	if v == nil {
 		return nil
 	}
@@ -153,37 +153,37 @@ func (rf *RegFilter) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.
 	name := normalizeName(qname)
 	qtype := r.Question[0].Qtype
 
-	// Check whitelist first
-	if wl := rf.GetWhitelist(); wl != nil {
+	// Check allowlist first
+	if wl := rf.GetAllowlist(); wl != nil {
 		if rf.metrics != nil {
-			rf.metrics.WhitelistChecks.Inc()
+			rf.metrics.AllowlistChecks.Inc()
 		}
 		if matched, ruleIDs := wl.Match(name); matched {
 			if rf.metrics != nil {
-				rf.metrics.WhitelistHits.Inc()
+				rf.metrics.AllowlistHits.Inc()
 				elapsed := time.Since(start).Seconds()
 				rf.metrics.MatchDuration.WithLabelValues("accept").Observe(elapsed)
 			}
 			if rf.Config.Debug {
-				rf.logDebugMatch("whitelist", name, ruleIDs, rf.wlSources.Load(), rf.wlPatterns.Load())
+				rf.logDebugMatch("allowlist", name, ruleIDs, rf.alSources.Load(), rf.alPatterns.Load())
 			}
 			return plugin.NextOrFailure(rf.Name(), rf.Next, ctx, w, r)
 		}
 	}
 
-	// Check blacklist
-	if bl := rf.GetBlacklist(); bl != nil {
+	// Check denylist
+	if bl := rf.GetDenylist(); bl != nil {
 		if rf.metrics != nil {
-			rf.metrics.BlacklistChecks.Inc()
+			rf.metrics.DenylistChecks.Inc()
 		}
 		if matched, ruleIDs := bl.Match(name); matched {
 			if rf.metrics != nil {
-				rf.metrics.BlacklistHits.Inc()
+				rf.metrics.DenylistHits.Inc()
 				elapsed := time.Since(start).Seconds()
 				rf.metrics.MatchDuration.WithLabelValues("reject").Observe(elapsed)
 			}
 			if rf.Config.Debug {
-				rf.logDebugMatch("blacklist", name, ruleIDs, rf.blSources.Load(), rf.blPatterns.Load())
+				rf.logDebugMatch("denylist", name, ruleIDs, rf.dlSources.Load(), rf.dlPatterns.Load())
 			}
 			return rf.respondBlocked(w, r, qname, qtype)
 		}
@@ -299,13 +299,13 @@ func shortSource(source string) string {
 // watcher infrastructure itself cannot be started.
 func (rf *RegFilter) StartWatcher() error {
 	stop, err := watcher.Start(&watcher.Config{
-		WhitelistDir:    rf.Config.WhitelistDir,
-		BlacklistDir:    rf.Config.BlacklistDir,
+		AllowlistDir:    rf.Config.AllowlistDir,
+		DenylistDir:     rf.Config.DenylistDir,
 		Debounce:        rf.Config.Debounce,
 		Logger:          &pluginLogger{},
 		MaxCompileTime:  rf.Config.CompileTimeout,
 		MaxStates:       rf.Config.MaxStates,
-		InvertWhitelist: rf.Config.InvertWhitelist,
+		InvertAllowlist: rf.Config.InvertAllowlist,
 		OnCompile: func(_ string, duration time.Duration) {
 			if rf.metrics != nil {
 				rf.metrics.CompileDuration.Observe(duration.Seconds())
@@ -318,25 +318,25 @@ func (rf *RegFilter) StartWatcher() error {
 				rf.metrics.CompileErrors.Inc()
 			}
 		},
-		OnUpdate: func(wl watcher.Snapshot, bl watcher.Snapshot) {
-			rf.SetWhitelist(wl.Matcher)
-			rf.SetBlacklist(bl.Matcher)
-			rf.wlSources.Store(wl.Sources)
-			rf.blSources.Store(bl.Sources)
-			rf.wlPatterns.Store(wl.Patterns)
-			rf.blPatterns.Store(bl.Patterns)
+		OnUpdate: func(al watcher.Snapshot, dl watcher.Snapshot) {
+			rf.SetAllowlist(al.Matcher)
+			rf.SetDenylist(dl.Matcher)
+			rf.alSources.Store(al.Sources)
+			rf.dlSources.Store(dl.Sources)
+			rf.alPatterns.Store(al.Patterns)
+			rf.dlPatterns.Store(dl.Patterns)
 			if rf.metrics != nil {
-				rf.metrics.WhitelistRules.Set(float64(wl.RuleCount))
-				rf.metrics.BlacklistRules.Set(float64(bl.RuleCount))
+				rf.metrics.AllowlistRules.Set(float64(al.RuleCount))
+				rf.metrics.DenylistRules.Set(float64(dl.RuleCount))
 			}
 			log.Infof(
-				"matchers updated: whitelist_active=%v whitelist_rules=%d whitelist_states=%d blacklist_active=%v blacklist_rules=%d blacklist_states=%d",
-				wl.Matcher != nil,
-				wl.RuleCount,
-				wl.StateCount,
-				bl.Matcher != nil,
-				bl.RuleCount,
-				bl.StateCount,
+				"matchers updated: allowlist_active=%v allowlist_rules=%d allowlist_states=%d denylist_active=%v denylist_rules=%d denylist_states=%d",
+				al.Matcher != nil,
+				al.RuleCount,
+				al.StateCount,
+				dl.Matcher != nil,
+				dl.RuleCount,
+				dl.StateCount,
 			)
 		},
 	})

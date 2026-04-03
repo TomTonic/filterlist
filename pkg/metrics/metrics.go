@@ -13,14 +13,14 @@ import (
 // or current ruleset size. Callers usually create one Registry per process or
 // per Prometheus registerer and then share it across handler instances.
 type Registry struct {
-	WhitelistChecks            prometheus.Counter
-	BlacklistChecks            prometheus.Counter
-	WhitelistHits              prometheus.Counter
-	BlacklistHits              prometheus.Counter
+	AllowlistChecks            prometheus.Counter
+	DenylistChecks             prometheus.Counter
+	AllowlistHits              prometheus.Counter
+	DenylistHits               prometheus.Counter
 	CompileErrors              prometheus.Counter
 	CompileDuration            prometheus.Histogram
-	WhitelistRules             prometheus.Gauge
-	BlacklistRules             prometheus.Gauge
+	AllowlistRules             prometheus.Gauge
+	DenylistRules              prometheus.Gauge
 	LastCompileTimestamp       prometheus.Gauge
 	LastCompileDurationSeconds prometheus.Gauge
 	MatchDuration              *prometheus.SummaryVec
@@ -44,29 +44,29 @@ func NewRegistry() *Registry {
 // This keeps repeated setup calls safe while preserving shared metric series.
 func NewRegistryWith(reg prometheus.Registerer) *Registry {
 	r := &Registry{
-		WhitelistChecks: prometheus.NewCounter(prometheus.CounterOpts{
+		AllowlistChecks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "whitelist_checks_total",
-			Help:      "Total number of queries checked against the whitelist DFA.",
+			Name:      "allowlist_checks_total",
+			Help:      "Total number of queries checked against the allowlist DFA.",
 		}),
-		BlacklistChecks: prometheus.NewCounter(prometheus.CounterOpts{
+		DenylistChecks: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "blacklist_checks_total",
-			Help:      "Total number of queries checked against the blacklist DFA.",
+			Name:      "denylist_checks_total",
+			Help:      "Total number of queries checked against the denylist DFA.",
 		}),
-		WhitelistHits: prometheus.NewCounter(prometheus.CounterOpts{
+		AllowlistHits: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "whitelist_hits_total",
-			Help:      "Total number of queries matched by whitelist DFA.",
+			Name:      "allowlist_hits_total",
+			Help:      "Total number of queries matched by allowlist DFA.",
 		}),
-		BlacklistHits: prometheus.NewCounter(prometheus.CounterOpts{
+		DenylistHits: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "blacklist_hits_total",
-			Help:      "Total number of queries matched by blacklist DFA.",
+			Name:      "denylist_hits_total",
+			Help:      "Total number of queries matched by denylist DFA.",
 		}),
 		CompileErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "coredns",
@@ -81,17 +81,17 @@ func NewRegistryWith(reg prometheus.Registerer) *Registry {
 			Help:      "Duration of DFA compilation in seconds.",
 			Buckets:   prometheus.ExponentialBuckets(0.01, 2, 12),
 		}),
-		WhitelistRules: prometheus.NewGauge(prometheus.GaugeOpts{
+		AllowlistRules: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "whitelist_rules",
-			Help:      "Current number of compiled whitelist rules.",
+			Name:      "allowlist_rules",
+			Help:      "Current number of compiled allowlist rules.",
 		}),
-		BlacklistRules: prometheus.NewGauge(prometheus.GaugeOpts{
+		DenylistRules: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
 			Subsystem: "regfilter",
-			Name:      "blacklist_rules",
-			Help:      "Current number of compiled blacklist rules.",
+			Name:      "denylist_rules",
+			Help:      "Current number of compiled denylist rules.",
 		}),
 		LastCompileTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "coredns",
@@ -114,14 +114,14 @@ func NewRegistryWith(reg prometheus.Registerer) *Registry {
 		}, []string{"result"}),
 	}
 
-	r.WhitelistChecks = registerCounter(reg, r.WhitelistChecks)
-	r.BlacklistChecks = registerCounter(reg, r.BlacklistChecks)
-	r.WhitelistHits = registerCounter(reg, r.WhitelistHits)
-	r.BlacklistHits = registerCounter(reg, r.BlacklistHits)
+	r.AllowlistChecks = registerCounter(reg, r.AllowlistChecks)
+	r.DenylistChecks = registerCounter(reg, r.DenylistChecks)
+	r.AllowlistHits = registerCounter(reg, r.AllowlistHits)
+	r.DenylistHits = registerCounter(reg, r.DenylistHits)
 	r.CompileErrors = registerCounter(reg, r.CompileErrors)
 	r.CompileDuration = registerHistogram(reg, r.CompileDuration)
-	r.WhitelistRules = registerGauge(reg, r.WhitelistRules)
-	r.BlacklistRules = registerGauge(reg, r.BlacklistRules)
+	r.AllowlistRules = registerGauge(reg, r.AllowlistRules)
+	r.DenylistRules = registerGauge(reg, r.DenylistRules)
 	r.LastCompileTimestamp = registerGauge(reg, r.LastCompileTimestamp)
 	r.LastCompileDurationSeconds = registerGauge(reg, r.LastCompileDurationSeconds)
 	r.MatchDuration = registerSummaryVec(reg, r.MatchDuration)

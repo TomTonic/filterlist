@@ -109,8 +109,8 @@ func parseConfig(c *caddy.Controller) (Config, error) {
 		}
 	}
 
-	if cfg.WhitelistDir == "" && cfg.BlacklistDir == "" {
-		return cfg, errors.New("at least one of whitelist_dir or blacklist_dir must be configured")
+	if cfg.AllowlistDir == "" && cfg.DenylistDir == "" {
+		return cfg, errors.New("at least one of allowlist_dir or denylist_dir must be configured")
 	}
 
 	return cfg, nil
@@ -119,18 +119,18 @@ func parseConfig(c *caddy.Controller) (Config, error) {
 // parseDirective keeps the per-directive parsing rules out of parseConfig.
 func parseDirective(c *caddy.Controller, cfg *Config) error {
 	switch c.Val() {
-	case "whitelist_dir":
+	case "allowlist_dir":
 		value, err := nextArgValue(c)
 		if err != nil {
 			return err
 		}
-		cfg.WhitelistDir = value
-	case "blacklist_dir":
+		cfg.AllowlistDir = value
+	case "denylist_dir":
 		value, err := nextArgValue(c)
 		if err != nil {
 			return err
 		}
-		cfg.BlacklistDir = value
+		cfg.DenylistDir = value
 	case "action":
 		value, err := nextArgValue(c)
 		if err != nil {
@@ -185,8 +185,8 @@ func parseDirective(c *caddy.Controller, cfg *Config) error {
 		cfg.Action.TTL = value
 	case "debug":
 		cfg.Debug = true
-	case "invert_whitelist":
-		cfg.InvertWhitelist = true
+	case "invert_allowlist":
+		cfg.InvertAllowlist = true
 	default:
 		return fmt.Errorf("unknown directive %q", c.Val())
 	}

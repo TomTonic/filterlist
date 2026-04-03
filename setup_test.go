@@ -50,15 +50,15 @@ func TestParseConfigRejectsWrongNullIPAddressFamilies(t *testing.T) {
 		{
 			name: "rejects IPv6 for nullip",
 			input: `regfilter {
-				blacklist_dir /tmp/blacklist
-				nullip ::
-			}`,
+						denylist_dir /tmp/blacklist
+						nullip ::
+					}`,
 			want: "expected IPv4",
 		},
 		{
 			name: "rejects IPv4 for nullip6",
 			input: `regfilter {
-				blacklist_dir /tmp/blacklist
+				denylist_dir /tmp/blacklist
 				nullip6 0.0.0.0
 			}`,
 			want: "expected IPv6",
@@ -86,8 +86,8 @@ func TestParseConfigRejectsWrongNullIPAddressFamilies(t *testing.T) {
 // in the resulting Config.
 func TestParseConfigAcceptsValidFamiliesAndPositiveDurations(t *testing.T) {
 	c := caddy.NewTestController("dns", `regfilter {
-		whitelist_dir /tmp/whitelist
-		blacklist_dir /tmp/blacklist
+		allowlist_dir /tmp/whitelist
+		denylist_dir /tmp/blacklist
 		action nullip
 		nullip 0.0.0.0
 		nullip6 ::
@@ -137,7 +137,7 @@ func TestParseConfigRejectsNonPositiveDurations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := caddy.NewTestController("dns", "regfilter {\nblacklist_dir /tmp/blacklist\n"+tt.directive+"\n}")
+			c := caddy.NewTestController("dns", "regfilter {\ndenylist_dir /tmp/blacklist\n"+tt.directive+"\n}")
 			_, err := parseConfig(c)
 			if err == nil {
 				t.Fatal("expected parseConfig error")
@@ -155,7 +155,7 @@ func TestParseConfigRejectsNonPositiveDurations(t *testing.T) {
 // present.
 func TestParseConfigDebugDirective(t *testing.T) {
 	// Without debug
-	c := caddy.NewTestController("dns", `regfilter { blacklist_dir /tmp/bl }`)
+	c := caddy.NewTestController("dns", `regfilter { denylist_dir /tmp/bl }`)
 	cfg, err := parseConfig(c)
 	if err != nil {
 		t.Fatalf("parseConfig error: %v", err)
@@ -166,7 +166,7 @@ func TestParseConfigDebugDirective(t *testing.T) {
 
 	// With debug
 	c = caddy.NewTestController("dns", `regfilter {
-		blacklist_dir /tmp/bl
+		denylist_dir /tmp/bl
 		debug
 	}`)
 	cfg, err = parseConfig(c)
@@ -188,25 +188,25 @@ func TestParseConfigDebugDirective(t *testing.T) {
 // It asserts that InvertWhitelist is false by default and true when the keyword
 // is present.
 func TestParseConfigInvertWhitelistDirective(t *testing.T) {
-	c := caddy.NewTestController("dns", `regfilter { blacklist_dir /tmp/bl }`)
+	c := caddy.NewTestController("dns", `regfilter { denylist_dir /tmp/bl }`)
 	cfg, err := parseConfig(c)
 	if err != nil {
 		t.Fatalf("parseConfig error: %v", err)
 	}
-	if cfg.InvertWhitelist {
-		t.Error("expected InvertWhitelist=false by default")
+	if cfg.InvertAllowlist {
+		t.Error("expected InvertAllowlist=false by default")
 	}
 
 	c = caddy.NewTestController("dns", `regfilter {
-		blacklist_dir /tmp/bl
-		invert_whitelist
+		denylist_dir /tmp/bl
+		invert_allowlist
 	}`)
 	cfg, err = parseConfig(c)
 	if err != nil {
 		t.Fatalf("parseConfig error: %v", err)
 	}
-	if !cfg.InvertWhitelist {
-		t.Error("expected InvertWhitelist=true when directive is present")
+	if !cfg.InvertAllowlist {
+		t.Error("expected InvertAllowlist=true when directive is present")
 	}
 }
 
