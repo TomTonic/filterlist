@@ -91,6 +91,8 @@ type subsetTransitionScratch struct {
 	moved             []uint32 // scratch for merging wildcard + literal targets
 }
 
+// reset clears all per-symbol target lists and the wildcard buffer so the
+// scratch can be reused for a new DFA state's outgoing transitions.
 func (s *subsetTransitionScratch) reset() {
 	mask := s.activeLiteralMask
 	for mask != 0 {
@@ -142,6 +144,10 @@ type arenaRef struct {
 	length   uint32
 }
 
+// closureArena is a bump allocator that carves sub-slices from large
+// contiguous []uint32 blocks. It turns millions of individual heap
+// allocations into a handful of block allocations, dramatically reducing
+// GC pressure during subset construction.
 type closureArena struct {
 	blocks  [][]uint32
 	current []uint32
@@ -214,6 +220,10 @@ func newStateSetMap(initialCap int, arena *closureArena) *stateSetMap {
 	return &stateSetMap{arena: arena, primary: make(map[uint64]stateSetEntry, initialCap)}
 }
 
+// lookup returns the DFA-state ID whose closure matches sorted, using the
+// pre-computed hash h for O(1)-expected access. It checks the primary
+// single-entry map first, then falls through to the overflow map for rare
+// hash collisions. Returns (0, false) when no matching closure exists.
 func (sm *stateSetMap) lookup(h uint64, sorted []uint32) (uint32, bool) {
 	if e, ok := sm.primary[h]; ok {
 		if slices.Equal(sm.arena.deref(e.ref), sorted) {
@@ -229,6 +239,10 @@ func (sm *stateSetMap) lookup(h uint64, sorted []uint32) (uint32, bool) {
 	return 0, false
 }
 
+// insert adds a new closure→stateID mapping keyed by hash h. If the hash
+// is new it goes into the primary map (single inline value, no slice
+// allocation). On the rare hash collision both entries are promoted to the
+// overflow map so subsequent lookups check all candidates.
 func (sm *stateSetMap) insert(h uint64, ref arenaRef, stateID uint32) {
 	entry := stateSetEntry{ref: ref, stateID: stateID}
 
@@ -320,13 +334,20 @@ func (b *subsetBuilder) getOrCreateState(source []uint32) (uint32, error) {
 // combinatorial explosion (0 = unlimited). The deadline parameter triggers a
 // timeout error when exceeded (zero value = no timeout).
 func subsetConstruction(n *nfa, maxStates int, deadline time.Time) (*intermediateDFA, error) {
-	// Pre-allocate with generous capacity to reduce growslice overhead.
-	// Real-world filter lists typically produce O(100K–10M) DFA states.
-	// When MaxStates is set, cap the pre-allocation to avoid wasting memory
-	// on compilations that are expected to stay small.
-	const initialDFACap = 1 << 22 // 4 Mi states
-	preallocCap := initialDFACap
-	if maxStates > 0 && maxStates < initialDFACap {
+	// Heuristic pre-allocation to reduce growslice/map-growth overhead while
+	// avoiding an over-aggressive reservation that causes large memclr and
+	// GC costs. The combined NFA size is a reasonable lower-bound estimator
+	// for the resulting DFA size. Cap to a modest upper bound so the initial
+	// allocation stays manageable on memory-limited systems.
+	const maxDefaultDFACap = 1 << 20 // 1 Mi states
+	preallocCap := len(n.states) * 2
+	if preallocCap < 1024 {
+		preallocCap = 1024
+	}
+	if preallocCap > maxDefaultDFACap {
+		preallocCap = maxDefaultDFACap
+	}
+	if maxStates > 0 && maxStates < preallocCap {
 		preallocCap = maxStates * 2
 		if preallocCap < 1024 {
 			preallocCap = 1024
