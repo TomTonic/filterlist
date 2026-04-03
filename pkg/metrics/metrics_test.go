@@ -12,17 +12,17 @@ func TestNewRegistryWith(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	r := NewRegistryWith(reg)
 
-	if r.WhitelistChecks == nil {
-		t.Fatal("WhitelistChecks is nil")
+	if r.AllowlistChecks == nil {
+		t.Fatal("AllowlistChecks is nil")
 	}
-	if r.BlacklistChecks == nil {
-		t.Fatal("BlacklistChecks is nil")
+	if r.DenylistChecks == nil {
+		t.Fatal("DenylistChecks is nil")
 	}
-	if r.WhitelistHits == nil {
-		t.Fatal("WhitelistHits is nil")
+	if r.AllowlistHits == nil {
+		t.Fatal("AllowlistHits is nil")
 	}
-	if r.BlacklistHits == nil {
-		t.Fatal("BlacklistHits is nil")
+	if r.DenylistHits == nil {
+		t.Fatal("DenylistHits is nil")
 	}
 	if r.CompileErrors == nil {
 		t.Fatal("CompileErrors is nil")
@@ -30,11 +30,11 @@ func TestNewRegistryWith(t *testing.T) {
 	if r.CompileDuration == nil {
 		t.Fatal("CompileDuration is nil")
 	}
-	if r.WhitelistRules == nil {
-		t.Fatal("WhitelistRules is nil")
+	if r.AllowlistRules == nil {
+		t.Fatal("AllowlistRules is nil")
 	}
-	if r.BlacklistRules == nil {
-		t.Fatal("BlacklistRules is nil")
+	if r.DenylistRules == nil {
+		t.Fatal("DenylistRules is nil")
 	}
 	if r.LastCompileTimestamp == nil {
 		t.Fatal("LastCompileTimestamp is nil")
@@ -53,11 +53,11 @@ func TestNewRegistryWithReusesExistingCollectors(t *testing.T) {
 	first := NewRegistryWith(reg)
 	second := NewRegistryWith(reg)
 
-	if first.WhitelistChecks != second.WhitelistChecks {
-		t.Fatal("WhitelistChecks collector was not reused")
+	if first.AllowlistChecks != second.AllowlistChecks {
+		t.Fatal("AllowlistChecks collector was not reused")
 	}
-	if first.BlacklistRules != second.BlacklistRules {
-		t.Fatal("BlacklistRules collector was not reused")
+	if first.DenylistRules != second.DenylistRules {
+		t.Fatal("DenylistRules collector was not reused")
 	}
 	if first.MatchDuration != second.MatchDuration {
 		t.Fatal("MatchDuration collector was not reused")

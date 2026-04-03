@@ -50,16 +50,16 @@ func (a *matcherLogger) Infof(format string, args ...interface{}) {
 
 // Config configures the watcher.
 type Config struct {
-	WhitelistDir    string
-	BlacklistDir    string
+	AllowlistDir    string
+	DenylistDir     string
 	Debounce        time.Duration
 	Logger          Logger
-	OnUpdate        func(whitelist Snapshot, blacklist Snapshot)
+	OnUpdate        func(allowlist Snapshot, denylist Snapshot)
 	OnCompile       func(label string, duration time.Duration)
 	OnError         func(label string, err error)
 	MaxCompileTime  time.Duration
 	MaxStates       int
-	InvertWhitelist bool
+	InvertAllowlist bool
 }
 
 // Snapshot describes one compiled filter set state.
@@ -141,18 +141,18 @@ func Start(cfg *Config) (stop func() error, err error) {
 	}
 
 	// Initial compile
-	wlSnapshot, wlReport := w.compileDir(cfg.WhitelistDir, "whitelist")
-	if wlReport.Err != nil && cfg.OnError != nil {
-		cfg.OnError("whitelist", wlReport.Err)
+	alSnapshot, alReport := w.compileDir(cfg.AllowlistDir, "allowlist")
+	if alReport.Err != nil && cfg.OnError != nil {
+		cfg.OnError("allowlist", alReport.Err)
 	}
-	blSnapshot, blReport := w.compileDir(cfg.BlacklistDir, "blacklist")
-	if blReport.Err != nil && cfg.OnError != nil {
-		cfg.OnError("blacklist", blReport.Err)
+	dlSnapshot, dlReport := w.compileDir(cfg.DenylistDir, "denylist")
+	if dlReport.Err != nil && cfg.OnError != nil {
+		cfg.OnError("denylist", dlReport.Err)
 	}
-	w.lastWL = wlSnapshot
-	w.lastBL = blSnapshot
+	w.lastAL = alSnapshot
+	w.lastDL = dlSnapshot
 	if cfg.OnUpdate != nil {
-		cfg.OnUpdate(wlSnapshot, blSnapshot)
+		cfg.OnUpdate(alSnapshot, dlSnapshot)
 	}
 
 	// Set up fsnotify
@@ -164,7 +164,7 @@ func Start(cfg *Config) (stop func() error, err error) {
 	w.fsw = fsw
 
 	// Watch directories (non-fatal if missing)
-	for _, dir := range []string{cfg.WhitelistDir, cfg.BlacklistDir} {
+	for _, dir := range []string{cfg.AllowlistDir, cfg.DenylistDir} {
 		if dir == "" {
 			continue
 		}
@@ -188,8 +188,8 @@ type dirWatcher struct {
 	wg     sync.WaitGroup
 
 	mu     sync.Mutex // protects compileDir calls
-	lastWL Snapshot
-	lastBL Snapshot
+	lastAL Snapshot
+	lastDL Snapshot
 }
 
 // stop cancels the watcher context, closes fsnotify, and waits for the loop to exit.
@@ -205,20 +205,20 @@ func (w *dirWatcher) loop() {
 	defer w.wg.Done()
 
 	var (
-		whitelistTimer *time.Timer
-		blacklistTimer *time.Timer
+		allowlistTimer *time.Timer
+		denylistTimer  *time.Timer
 	)
-	whitelistCh := make(chan time.Time, 1)
-	blacklistCh := make(chan time.Time, 1)
+	allowlistCh := make(chan time.Time, 1)
+	denylistCh := make(chan time.Time, 1)
 
 	for {
 		select {
 		case <-w.ctx.Done():
-			if whitelistTimer != nil {
-				whitelistTimer.Stop()
+			if allowlistTimer != nil {
+				allowlistTimer.Stop()
 			}
-			if blacklistTimer != nil {
-				blacklistTimer.Stop()
+			if denylistTimer != nil {
+				denylistTimer.Stop()
 			}
 			return
 
@@ -229,34 +229,34 @@ func (w *dirWatcher) loop() {
 			w.cfg.Logger.Infof("watcher: event %s on %s", event.Op, event.Name)
 
 			// Determine which directory changed
-			if isUnder(event.Name, w.cfg.WhitelistDir) {
-				if whitelistTimer != nil {
-					whitelistTimer.Stop()
+			if isUnder(event.Name, w.cfg.AllowlistDir) {
+				if allowlistTimer != nil {
+					allowlistTimer.Stop()
 				}
-				whitelistTimer = time.AfterFunc(w.cfg.Debounce, func() {
+				allowlistTimer = time.AfterFunc(w.cfg.Debounce, func() {
 					select {
-					case whitelistCh <- time.Now():
+					case allowlistCh <- time.Now():
 					default:
 					}
 				})
 			}
-			if isUnder(event.Name, w.cfg.BlacklistDir) {
-				if blacklistTimer != nil {
-					blacklistTimer.Stop()
+			if isUnder(event.Name, w.cfg.DenylistDir) {
+				if denylistTimer != nil {
+					denylistTimer.Stop()
 				}
-				blacklistTimer = time.AfterFunc(w.cfg.Debounce, func() {
+				denylistTimer = time.AfterFunc(w.cfg.Debounce, func() {
 					select {
-					case blacklistCh <- time.Now():
+					case denylistCh <- time.Now():
 					default:
 					}
 				})
 			}
 
-		case <-whitelistCh:
-			w.rebuild("whitelist")
+		case <-allowlistCh:
+			w.rebuild("allowlist")
 
-		case <-blacklistCh:
-			w.rebuild("blacklist")
+		case <-denylistCh:
+			w.rebuild("denylist")
 
 		case err, ok := <-w.fsw.Errors:
 			if !ok {
@@ -275,34 +275,34 @@ func (w *dirWatcher) rebuild(which string) {
 	w.cfg.Logger.Infof("watcher: rebuilding %s DFA", which)
 
 	switch which {
-	case "whitelist":
-		snapshot, report := w.compileDir(w.cfg.WhitelistDir, "whitelist")
+	case "allowlist":
+		snapshot, report := w.compileDir(w.cfg.AllowlistDir, "allowlist")
 		if report.Err != nil {
-			w.cfg.Logger.Warnf("watcher: whitelist compile failed, keeping previous DFA")
+			w.cfg.Logger.Warnf("watcher: allowlist compile failed, keeping previous DFA")
 			if w.cfg.OnError != nil {
-				w.cfg.OnError("whitelist", report.Err)
+				w.cfg.OnError("allowlist", report.Err)
 			}
-			snapshot = w.lastWL
+			snapshot = w.lastAL
 		} else {
-			w.lastWL = snapshot
+			w.lastAL = snapshot
 		}
 		if w.cfg.OnUpdate != nil {
-			w.cfg.OnUpdate(snapshot, w.lastBL)
+			w.cfg.OnUpdate(snapshot, w.lastDL)
 		}
 
-	case "blacklist":
-		snapshot, report := w.compileDir(w.cfg.BlacklistDir, "blacklist")
+	case "denylist":
+		snapshot, report := w.compileDir(w.cfg.DenylistDir, "denylist")
 		if report.Err != nil {
-			w.cfg.Logger.Warnf("watcher: blacklist compile failed, keeping previous DFA")
+			w.cfg.Logger.Warnf("watcher: denylist compile failed, keeping previous DFA")
 			if w.cfg.OnError != nil {
-				w.cfg.OnError("blacklist", report.Err)
+				w.cfg.OnError("denylist", report.Err)
 			}
-			snapshot = w.lastBL
+			snapshot = w.lastDL
 		} else {
-			w.lastBL = snapshot
+			w.lastDL = snapshot
 		}
 		if w.cfg.OnUpdate != nil {
-			w.cfg.OnUpdate(w.lastWL, snapshot)
+			w.cfg.OnUpdate(w.lastAL, snapshot)
 		}
 	}
 }
@@ -332,7 +332,7 @@ func (w *dirWatcher) compileDir(dir, label string) (Snapshot, compileReport) {
 		return Snapshot{}, report
 	}
 
-	rules = filterRulesForList(rules, label, w.cfg.InvertWhitelist)
+	rules = filterRulesForList(rules, label, w.cfg.InvertAllowlist)
 
 	if len(rules) == 0 {
 		report.Status = compileStatusEmpty
@@ -419,12 +419,12 @@ func isUnder(path, dir string) bool {
 // conversion. Whitelist directories use the @@-prefixed rules by default
 // (AdGuard semantics: @@ = allow); when invertWhitelist is true, non-@@
 // rules are used instead (simpler ||domain^ syntax).
-func filterRulesForList(rules []filterlist.Rule, label string, invertWhitelist bool) []filterlist.Rule {
+func filterRulesForList(rules []filterlist.Rule, label string, invertAllowlist bool) []filterlist.Rule {
 	switch label {
-	case "blacklist":
+	case "denylist":
 		return keepRules(rules, false)
-	case "whitelist":
-		if invertWhitelist {
+	case "allowlist":
+		if invertAllowlist {
 			return keepRules(rules, false)
 		}
 		return keepRules(rules, true)

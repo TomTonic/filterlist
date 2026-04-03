@@ -37,14 +37,14 @@ func (l *testLogger) contains(part string) bool {
 	return false
 }
 
-// TestStartAndStop verifies that operators get an initial compiled blacklist and
+// TestStartAndStop verifies that operators get an initial compiled denylist and
 // a clean shutdown path when the watcher starts on readable filter files.
 //
 // This test covers the watcher package lifecycle around initial compilation and
 // stop handling.
 //
 // It asserts that Start publishes the first snapshot before returning and that
-// the resulting DFA matches the seeded blacklist rule.
+// the resulting DFA matches the seeded denylist rule.
 func TestStartAndStop(t *testing.T) {
 	wlDir := t.TempDir()
 	blDir := t.TempDir()
@@ -60,8 +60,8 @@ func TestStartAndStop(t *testing.T) {
 	updateCount := 0
 
 	stop, err := Start(&Config{
-		WhitelistDir: wlDir,
-		BlacklistDir: blDir,
+		AllowlistDir: wlDir,
+		DenylistDir:  blDir,
 		Debounce:     50 * time.Millisecond,
 		Logger:       logger,
 		OnUpdate: func(wl Snapshot, bl Snapshot) {
@@ -87,13 +87,13 @@ func TestStartAndStop(t *testing.T) {
 		t.Error("expected at least 1 OnUpdate call from initial compile")
 	}
 	if lastBL.Matcher == nil {
-		t.Error("expected blacklist DFA after initial compile")
+		t.Error("expected denylist DFA after initial compile")
 	}
 	if lastWL.Matcher != nil {
-		t.Error("expected nil whitelist DFA (empty dir)")
+		t.Error("expected nil allowlist DFA (empty dir)")
 	}
 	if lastBL.RuleCount != 1 {
-		t.Errorf("expected blacklist rule count 1, got %d", lastBL.RuleCount)
+		t.Errorf("expected denylist rule count 1, got %d", lastBL.RuleCount)
 	}
 	mu.Unlock()
 
@@ -101,14 +101,14 @@ func TestStartAndStop(t *testing.T) {
 	if lastBL.Matcher != nil {
 		matched, _ := lastBL.Matcher.Match("ads.example.com")
 		if !matched {
-			t.Error("expected blacklist to match ads.example.com")
+			t.Error("expected denylist to match ads.example.com")
 		}
 	}
-	if !logger.contains("label=whitelist") || !logger.contains("status=empty") {
-		t.Error("expected detailed compile summary for empty whitelist")
+	if !logger.contains("label=allowlist") || !logger.contains("status=empty") {
+		t.Error("expected detailed compile summary for empty allowlist")
 	}
-	if !logger.contains("label=blacklist") || !logger.contains("status=ready") {
-		t.Error("expected detailed compile summary for ready blacklist")
+	if !logger.contains("label=denylist") || !logger.contains("status=ready") {
+		t.Error("expected detailed compile summary for ready denylist")
 	}
 }
 
@@ -123,8 +123,8 @@ func TestStartMissingDirs(t *testing.T) {
 	logger := &testLogger{}
 	errorCount := 0
 	stop, err := Start(&Config{
-		WhitelistDir: "/nonexistent/whitelist",
-		BlacklistDir: "/nonexistent/blacklist",
+		AllowlistDir: "/nonexistent/allowlist",
+		DenylistDir:  "/nonexistent/denylist",
 		Logger:       logger,
 		OnUpdate:     func(_ Snapshot, _ Snapshot) {},
 		OnError: func(_ string, _ error) {
@@ -147,7 +147,7 @@ func TestStartMissingDirs(t *testing.T) {
 	}
 }
 
-// TestHotReload verifies that users see newly added blacklist rules take effect
+// TestHotReload verifies that users see newly added denylist rules take effect
 // without restarting the process.
 //
 // This test covers the watcher package fsnotify debounce and rebuild flow.
@@ -166,9 +166,9 @@ func TestHotReload(t *testing.T) {
 	updateCount := 0
 
 	stop, err := Start(&Config{
-		BlacklistDir: blDir,
-		Debounce:     50 * time.Millisecond,
-		Logger:       &testLogger{},
+		DenylistDir: blDir,
+		Debounce:    50 * time.Millisecond,
+		Logger:      &testLogger{},
 		OnUpdate: func(_ Snapshot, bl Snapshot) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -198,7 +198,7 @@ func TestHotReload(t *testing.T) {
 	if lastBL.Matcher != nil {
 		matched, _ := lastBL.Matcher.Match("tracker.example.com")
 		if !matched {
-			t.Error("expected blacklist to match tracker.example.com after reload")
+			t.Error("expected denylist to match tracker.example.com after reload")
 		}
 	}
 	mu.Unlock()
@@ -209,7 +209,7 @@ func TestHotReload(t *testing.T) {
 //
 // This test covers the watcher package rebuild error-handling path.
 //
-// It asserts that a failed rebuild preserves the previous compiled blacklist.
+// It asserts that a failed rebuild preserves the previous compiled denylist.
 func TestHotReloadKeepsPreviousDFAOnCompileFailure(t *testing.T) {
 	blDir := t.TempDir()
 	path := filepath.Join(blDir, "test.txt")
@@ -223,10 +223,10 @@ func TestHotReloadKeepsPreviousDFAOnCompileFailure(t *testing.T) {
 	var lastBL Snapshot
 
 	stop, err := Start(&Config{
-		BlacklistDir: blDir,
-		Debounce:     50 * time.Millisecond,
-		MaxStates:    5,
-		Logger:       logger,
+		DenylistDir: blDir,
+		Debounce:    50 * time.Millisecond,
+		MaxStates:   5,
+		Logger:      logger,
 		OnUpdate: func(_ Snapshot, bl Snapshot) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -245,7 +245,7 @@ func TestHotReloadKeepsPreviousDFAOnCompileFailure(t *testing.T) {
 	mu.Lock()
 	if lastBL.Matcher == nil {
 		mu.Unlock()
-		t.Fatal("expected initial blacklist DFA")
+		t.Fatal("expected initial denylist DFA")
 	}
 	mu.Unlock()
 
@@ -259,11 +259,11 @@ func TestHotReloadKeepsPreviousDFAOnCompileFailure(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if lastBL.Matcher == nil {
-		t.Fatal("expected previous blacklist DFA to be preserved after failed rebuild")
+		t.Fatal("expected previous denylist DFA to be preserved after failed rebuild")
 	}
 	matched, _ := lastBL.Matcher.Match("a.b")
 	if !matched {
-		t.Error("expected preserved blacklist DFA to keep matching the original rule")
+		t.Error("expected preserved denylist DFA to keep matching the original rule")
 	}
 	if !logger.contains("status=compile_error") {
 		t.Error("expected detailed compile summary for failed rebuild")
@@ -276,7 +276,7 @@ func TestHotReloadKeepsPreviousDFAOnCompileFailure(t *testing.T) {
 // This test covers the watcher package distinction between empty successful
 // reloads and failed reloads.
 //
-// It asserts that an empty filter file clears the blacklist DFA instead of
+// It asserts that an empty filter file clears the denylist DFA instead of
 // keeping stale rules alive.
 func TestHotReloadClearsDFAOnEmptyLists(t *testing.T) {
 	blDir := t.TempDir()
@@ -290,9 +290,9 @@ func TestHotReloadClearsDFAOnEmptyLists(t *testing.T) {
 	var lastBL Snapshot
 
 	stop, err := Start(&Config{
-		BlacklistDir: blDir,
-		Debounce:     50 * time.Millisecond,
-		Logger:       &testLogger{},
+		DenylistDir: blDir,
+		Debounce:    50 * time.Millisecond,
+		Logger:      &testLogger{},
 		OnUpdate: func(_ Snapshot, bl Snapshot) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -318,7 +318,7 @@ func TestHotReloadClearsDFAOnEmptyLists(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if lastBL.Matcher != nil {
-		t.Fatal("expected blacklist DFA to clear after successful empty reload")
+		t.Fatal("expected denylist DFA to clear after successful empty reload")
 	}
 	if lastBL.RuleCount != 0 {
 		t.Fatalf("expected zero rules after empty reload, got %d", lastBL.RuleCount)
@@ -355,7 +355,7 @@ func TestIsUnder(t *testing.T) {
 //
 // This test covers the watcher package observability callback path.
 //
-// It asserts that Start triggers OnCompile during the initial blacklist build
+// It asserts that Start triggers OnCompile during the initial denylist build
 // and reports a positive duration.
 func TestOnCompileCallback(t *testing.T) {
 	blDir := t.TempDir()
@@ -369,17 +369,17 @@ func TestOnCompileCallback(t *testing.T) {
 	var lastDuration time.Duration
 
 	stop, err := Start(&Config{
-		BlacklistDir: blDir,
-		Debounce:     50 * time.Millisecond,
-		Logger:       &testLogger{},
-		OnUpdate:     func(_ Snapshot, _ Snapshot) {},
+		DenylistDir: blDir,
+		Debounce:    50 * time.Millisecond,
+		Logger:      &testLogger{},
+		OnUpdate:    func(_ Snapshot, _ Snapshot) {},
 		OnCompile: func(label string, duration time.Duration) {
 			mu.Lock()
 			defer mu.Unlock()
 			compileCalls++
 			lastDuration = duration
-			if label != "blacklist" {
-				t.Errorf("expected label 'blacklist', got %q", label)
+			if label != "denylist" {
+				t.Errorf("expected label 'denylist', got %q", label)
 			}
 		},
 	})
@@ -410,7 +410,7 @@ func TestOnCompileCallback(t *testing.T) {
 //
 // It writes a blacklist file with both @@ (exception) and || (blocking) rules
 // and asserts that only the blocking rule is compiled into the DFA.
-func TestBlacklistExcludesExceptionRules(t *testing.T) {
+func TestDenylistExcludesExceptionRules(t *testing.T) {
 	blDir := t.TempDir()
 	content := "||ads.example.com^\n@@||safe.example.com^\n"
 	if err := os.WriteFile(filepath.Join(blDir, "mixed.txt"), []byte(content), 0o600); err != nil {
@@ -419,9 +419,9 @@ func TestBlacklistExcludesExceptionRules(t *testing.T) {
 
 	var lastBL Snapshot
 	stop, err := Start(&Config{
-		BlacklistDir: blDir,
-		Debounce:     50 * time.Millisecond,
-		Logger:       &testLogger{},
+		DenylistDir: blDir,
+		Debounce:    50 * time.Millisecond,
+		Logger:      &testLogger{},
 		OnUpdate: func(_ Snapshot, bl Snapshot) {
 			lastBL = bl
 		},
@@ -432,18 +432,18 @@ func TestBlacklistExcludesExceptionRules(t *testing.T) {
 	t.Cleanup(func() { _ = stop() })
 
 	if lastBL.Matcher == nil {
-		t.Fatal("expected blacklist DFA")
+		t.Fatal("expected denylist DFA")
 	}
 	if lastBL.RuleCount != 1 {
 		t.Errorf("RuleCount = %d, want 1 (only non-@@ rule)", lastBL.RuleCount)
 	}
 	matched, _ := lastBL.Matcher.Match("ads.example.com")
 	if !matched {
-		t.Error("expected blacklist to match ads.example.com")
+		t.Error("expected denylist to match ads.example.com")
 	}
 	matched, _ = lastBL.Matcher.Match("safe.example.com")
 	if matched {
-		t.Error("expected blacklist NOT to match safe.example.com (@@-filtered)")
+		t.Error("expected denylist NOT to match safe.example.com (@@-filtered)")
 	}
 }
 
@@ -455,7 +455,7 @@ func TestBlacklistExcludesExceptionRules(t *testing.T) {
 // InvertWhitelist=false.
 //
 // It writes a whitelist file with @@ rules and asserts those are compiled.
-func TestWhitelistDefaultKeepsExceptionRules(t *testing.T) {
+func TestAllowlistDefaultKeepsExceptionRules(t *testing.T) {
 	wlDir := t.TempDir()
 	content := "@@||safe.example.com^\n||other.example.com^\n"
 	if err := os.WriteFile(filepath.Join(wlDir, "allow.txt"), []byte(content), 0o600); err != nil {
@@ -464,7 +464,7 @@ func TestWhitelistDefaultKeepsExceptionRules(t *testing.T) {
 
 	var lastWL Snapshot
 	stop, err := Start(&Config{
-		WhitelistDir: wlDir,
+		AllowlistDir: wlDir,
 		Debounce:     50 * time.Millisecond,
 		Logger:       &testLogger{},
 		OnUpdate: func(wl Snapshot, _ Snapshot) {
@@ -477,18 +477,18 @@ func TestWhitelistDefaultKeepsExceptionRules(t *testing.T) {
 	t.Cleanup(func() { _ = stop() })
 
 	if lastWL.Matcher == nil {
-		t.Fatal("expected whitelist DFA")
+		t.Fatal("expected allowlist DFA")
 	}
 	if lastWL.RuleCount != 1 {
 		t.Errorf("RuleCount = %d, want 1 (only @@-rule)", lastWL.RuleCount)
 	}
 	matched, _ := lastWL.Matcher.Match("safe.example.com")
 	if !matched {
-		t.Error("expected whitelist to match safe.example.com")
+		t.Error("expected allowlist to match safe.example.com")
 	}
 	matched, _ = lastWL.Matcher.Match("other.example.com")
 	if matched {
-		t.Error("expected whitelist NOT to match other.example.com (non-@@ filtered out)")
+		t.Error("expected allowlist NOT to match other.example.com (non-@@ filtered out)")
 	}
 }
 
@@ -500,7 +500,7 @@ func TestWhitelistDefaultKeepsExceptionRules(t *testing.T) {
 //
 // It writes a whitelist file with both @@ and || rules and asserts that only
 // the non-@@ rules are compiled.
-func TestWhitelistInvertedKeepsNonExceptionRules(t *testing.T) {
+func TestAllowlistInvertedKeepsNonExceptionRules(t *testing.T) {
 	wlDir := t.TempDir()
 	content := "||safe.example.com^\n@@||ignored.example.com^\n"
 	if err := os.WriteFile(filepath.Join(wlDir, "allow.txt"), []byte(content), 0o600); err != nil {
@@ -509,10 +509,10 @@ func TestWhitelistInvertedKeepsNonExceptionRules(t *testing.T) {
 
 	var lastWL Snapshot
 	stop, err := Start(&Config{
-		WhitelistDir:    wlDir,
+		AllowlistDir:    wlDir,
 		Debounce:        50 * time.Millisecond,
 		Logger:          &testLogger{},
-		InvertWhitelist: true,
+		InvertAllowlist: true,
 		OnUpdate: func(wl Snapshot, _ Snapshot) {
 			lastWL = wl
 		},
@@ -523,17 +523,17 @@ func TestWhitelistInvertedKeepsNonExceptionRules(t *testing.T) {
 	t.Cleanup(func() { _ = stop() })
 
 	if lastWL.Matcher == nil {
-		t.Fatal("expected whitelist DFA")
+		t.Fatal("expected allowlist DFA")
 	}
 	if lastWL.RuleCount != 1 {
 		t.Errorf("RuleCount = %d, want 1 (only non-@@ rule)", lastWL.RuleCount)
 	}
 	matched, _ := lastWL.Matcher.Match("safe.example.com")
 	if !matched {
-		t.Error("expected inverted whitelist to match safe.example.com")
+		t.Error("expected inverted allowlist to match safe.example.com")
 	}
 	matched, _ = lastWL.Matcher.Match("ignored.example.com")
 	if matched {
-		t.Error("expected inverted whitelist NOT to match ignored.example.com (@@-filtered)")
+		t.Error("expected inverted allowlist NOT to match ignored.example.com (@@-filtered)")
 	}
 }

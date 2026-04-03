@@ -52,5 +52,5 @@ jobs:
       - name: Run CLI validate
         run: |
           ./build/regfilter-check validate \
-            --whitelist testdata/filterlists/whitelist \
-            --blacklist testdata/filterlists/blacklist
+            --allowlist testdata/filterlists/allowlist \
+            --denylist testdata/filterlists/denylist

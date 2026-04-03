@@ -26,8 +26,8 @@ func testdataDir() string {
 }
 
 // TestIntegrationBlacklistCompile verifies that operators can load a real blacklist directory end-to-end through the repository integration path by asserting that compiled deny rules match known blocked domains and ignore safe ones.
-func TestIntegrationBlacklistCompile(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "blacklist")
+func TestIntegrationDenylistCompile(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "denylist")
 	logger := &testLogger{}
 
 	rules, err := blockloader.LoadDirectory(dir, logger)
@@ -39,7 +39,7 @@ func TestIntegrationBlacklistCompile(t *testing.T) {
 		t.Fatal("expected rules from blacklist directory")
 	}
 
-	t.Logf("loaded %d rules from blacklist", len(rules))
+	t.Logf("loaded %d rules from denylist", len(rules))
 
 	// Separate allow and deny rules
 	var denyRules, allowRules []filterlist.Rule
@@ -107,8 +107,8 @@ func TestIntegrationBlacklistCompile(t *testing.T) {
 //
 // It asserts that the parsed ||ads.example.com^ rule blocks ads.example.com and
 // deeper names like sub.ads.example.com while unrelated domains stay allowed.
-func TestIntegrationBlacklistLiteralAnchoredDomainMatchesSubdomains(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "blacklist")
+func TestIntegrationDenylistLiteralAnchoredDomainMatchesSubdomains(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "denylist")
 	logger := &testLogger{}
 
 	rules, err := blockloader.LoadDirectory(dir, logger)
@@ -165,8 +165,8 @@ func TestIntegrationBlacklistLiteralAnchoredDomainMatchesSubdomains(t *testing.T
 //
 // It asserts that the parsed ||*.tracking.example.com^ rule blocks matching
 // subdomains while the bare base domain and unrelated names remain allowed.
-func TestIntegrationBlacklistWildcardAutomatonMatchesSubdomains(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "blacklist")
+func TestIntegrationDenylistWildcardAutomatonMatchesSubdomains(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "denylist")
 	logger := &testLogger{}
 
 	rules, err := blockloader.LoadDirectory(dir, logger)
@@ -214,8 +214,8 @@ func TestIntegrationBlacklistWildcardAutomatonMatchesSubdomains(t *testing.T) {
 }
 
 // TestIntegrationWhitelistCompile verifies that operators can load a real whitelist directory end-to-end through the repository integration path by asserting that compiled allow rules match trusted domains and exclude unrelated ones.
-func TestIntegrationWhitelistCompile(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "whitelist")
+func TestIntegrationAllowlistCompile(t *testing.T) {
+	dir := filepath.Join(testdataDir(), "allowlist")
 	logger := &testLogger{}
 
 	rules, err := blockloader.LoadDirectory(dir, logger)
@@ -227,7 +227,7 @@ func TestIntegrationWhitelistCompile(t *testing.T) {
 		t.Fatal("expected rules from whitelist directory")
 	}
 
-	t.Logf("loaded %d rules from whitelist", len(rules))
+	t.Logf("loaded %d rules from allowlist", len(rules))
 
 	m, err := matcher.CompileRules(rules, matcher.CompileOptions{})
 	if err != nil {
@@ -261,10 +261,10 @@ func TestIntegrationWhitelistCompile(t *testing.T) {
 }
 
 // TestIntegrationWhitelistPrecedence verifies that users keep explicit allow rules even when deny lists are also present by asserting that whitelist matching wins over blacklist handling in the integrated compile flow.
-func TestIntegrationWhitelistPrecedence(t *testing.T) {
-	// Load both lists and verify whitelist takes precedence
-	blDir := filepath.Join(testdataDir(), "blacklist")
-	wlDir := filepath.Join(testdataDir(), "whitelist")
+func TestIntegrationAllowlistPrecedence(t *testing.T) {
+	// Load both lists and verify allowlist takes precedence
+	blDir := filepath.Join(testdataDir(), "denylist")
+	wlDir := filepath.Join(testdataDir(), "allowlist")
 	logger := &testLogger{}
 
 	blRules, err := blockloader.LoadDirectory(blDir, logger)

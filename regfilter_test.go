@@ -107,7 +107,7 @@ func TestServeDNSBlacklistNXDOMAIN(t *testing.T) {
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("ads.example.com", dns.TypeA)
@@ -138,7 +138,7 @@ func TestServeDNSBlacklistNullIP(t *testing.T) {
 			},
 		},
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	// Test A query
 	w := newMockWriter()
@@ -186,7 +186,7 @@ func TestServeDNSBlacklistRefuse(t *testing.T) {
 			Action: ActionConfig{Mode: "refuse"},
 		},
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("ads.example.com", dns.TypeA)
@@ -209,8 +209,8 @@ func TestServeDNSWhitelistOverridesBlacklist(t *testing.T) {
 		},
 	}
 	// Both lists contain the same domain; whitelist takes precedence
-	rf.SetWhitelist(buildMatcher(t, []string{"ads.example.com"}))
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetAllowlist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("ads.example.com", dns.TypeA)
@@ -232,7 +232,7 @@ func TestServeDNSNoMatch(t *testing.T) {
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("safe.example.com", dns.TypeA)
@@ -254,7 +254,7 @@ func TestServeDNSCaseInsensitive(t *testing.T) {
 			Action: ActionConfig{Mode: "nxdomain"},
 		},
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("ADS.Example.COM", dns.TypeA)
@@ -364,7 +364,7 @@ func TestServeDNSMatchDurationAccept(t *testing.T) {
 		Config:  Config{Action: ActionConfig{Mode: "nxdomain"}},
 		metrics: m,
 	}
-	rf.SetWhitelist(buildMatcher(t, []string{"safe.example.com"}))
+	rf.SetAllowlist(buildMatcher(t, []string{"safe.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("safe.example.com", dns.TypeA)
@@ -387,7 +387,7 @@ func TestServeDNSMatchDurationReject(t *testing.T) {
 		Config:  Config{Action: ActionConfig{Mode: "nxdomain"}},
 		metrics: m,
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("ads.example.com", dns.TypeA)
@@ -410,7 +410,7 @@ func TestServeDNSMatchDurationPass(t *testing.T) {
 		Config:  Config{Action: ActionConfig{Mode: "nxdomain"}},
 		metrics: m,
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("clean.example.com", dns.TypeA)
@@ -433,17 +433,17 @@ func TestServeDNSWhitelistHitCounter(t *testing.T) {
 		Config:  Config{Action: ActionConfig{Mode: "nxdomain"}},
 		metrics: m,
 	}
-	rf.SetWhitelist(buildMatcher(t, []string{"safe.example.com"}))
+	rf.SetAllowlist(buildMatcher(t, []string{"safe.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("safe.example.com", dns.TypeA)
 	_, _ = rf.ServeDNS(context.Background(), w, r)
 
-	if got := getCounterValue(t, m.WhitelistChecks); got != 1 {
-		t.Errorf("WhitelistChecks = %v, want 1", got)
+	if got := getCounterValue(t, m.AllowlistChecks); got != 1 {
+		t.Errorf("AllowlistChecks = %v, want 1", got)
 	}
-	if got := getCounterValue(t, m.WhitelistHits); got != 1 {
-		t.Errorf("WhitelistHits = %v, want 1", got)
+	if got := getCounterValue(t, m.AllowlistHits); got != 1 {
+		t.Errorf("AllowlistHits = %v, want 1", got)
 	}
 }
 
@@ -456,21 +456,21 @@ func TestServeDNSBlacklistCheckAndHitCounters(t *testing.T) {
 		Config:  Config{Action: ActionConfig{Mode: "nxdomain"}},
 		metrics: m,
 	}
-	rf.SetWhitelist(buildMatcher(t, []string{"safe.example.com"}))
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetAllowlist(buildMatcher(t, []string{"safe.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("ads.example.com", dns.TypeA)
 	_, _ = rf.ServeDNS(context.Background(), w, r)
 
-	if got := getCounterValue(t, m.WhitelistChecks); got != 1 {
-		t.Errorf("WhitelistChecks = %v, want 1", got)
+	if got := getCounterValue(t, m.AllowlistChecks); got != 1 {
+		t.Errorf("AllowlistChecks = %v, want 1", got)
 	}
-	if got := getCounterValue(t, m.BlacklistChecks); got != 1 {
-		t.Errorf("BlacklistChecks = %v, want 1", got)
+	if got := getCounterValue(t, m.DenylistChecks); got != 1 {
+		t.Errorf("DenylistChecks = %v, want 1", got)
 	}
-	if got := getCounterValue(t, m.BlacklistHits); got != 1 {
-		t.Errorf("BlacklistHits = %v, want 1", got)
+	if got := getCounterValue(t, m.DenylistHits); got != 1 {
+		t.Errorf("DenylistHits = %v, want 1", got)
 	}
 }
 
@@ -483,18 +483,18 @@ func TestServeDNSWhitelistHitSkipsBlacklistCheck(t *testing.T) {
 		Config:  Config{Action: ActionConfig{Mode: "nxdomain"}},
 		metrics: m,
 	}
-	rf.SetWhitelist(buildMatcher(t, []string{"safe.example.com"}))
-	rf.SetBlacklist(buildMatcher(t, []string{"safe.example.com"}))
+	rf.SetAllowlist(buildMatcher(t, []string{"safe.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"safe.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("safe.example.com", dns.TypeA)
 	_, _ = rf.ServeDNS(context.Background(), w, r)
 
-	if got := getCounterValue(t, m.WhitelistChecks); got != 1 {
-		t.Errorf("WhitelistChecks = %v, want 1", got)
+	if got := getCounterValue(t, m.AllowlistChecks); got != 1 {
+		t.Errorf("AllowlistChecks = %v, want 1", got)
 	}
-	if got := getCounterValue(t, m.BlacklistChecks); got != 0 {
-		t.Errorf("BlacklistChecks = %v, want 0", got)
+	if got := getCounterValue(t, m.DenylistChecks); got != 0 {
+		t.Errorf("DenylistChecks = %v, want 0", got)
 	}
 }
 
@@ -509,7 +509,7 @@ func TestStartWatcherLoadsInitialSnapshots(t *testing.T) {
 	m, _ := newMetrics(t)
 	rf := &RegFilter{
 		Config: Config{
-			BlacklistDir:   blDir,
+			DenylistDir:    blDir,
 			Debounce:       50 * time.Millisecond,
 			MaxStates:      1000,
 			CompileTimeout: time.Second,
@@ -526,7 +526,7 @@ func TestStartWatcherLoadsInitialSnapshots(t *testing.T) {
 		}
 	})
 
-	bl := rf.GetBlacklist()
+	bl := rf.GetDenylist()
 	if bl == nil {
 		t.Fatal("expected blacklist DFA after StartWatcher")
 	}
@@ -534,8 +534,8 @@ func TestStartWatcherLoadsInitialSnapshots(t *testing.T) {
 	if !matched {
 		t.Fatal("expected blacklist DFA to match seeded rule")
 	}
-	if got := getGaugeValue(t, m.BlacklistRules); got != 1 {
-		t.Fatalf("BlacklistRules = %v, want 1", got)
+	if got := getGaugeValue(t, m.DenylistRules); got != 1 {
+		t.Fatalf("DenylistRules = %v, want 1", got)
 	}
 	if got := getGaugeValue(t, m.LastCompileDurationSeconds); got <= 0 {
 		t.Fatalf("LastCompileDurationSeconds = %v, want > 0", got)
@@ -547,7 +547,7 @@ func TestStartWatcherInitialFailureIncrementsCompileErrors(t *testing.T) {
 	m, _ := newMetrics(t)
 	rf := &RegFilter{
 		Config: Config{
-			BlacklistDir:   "/nonexistent/blacklist",
+			DenylistDir:    "/nonexistent/blacklist",
 			Debounce:       50 * time.Millisecond,
 			MaxStates:      1000,
 			CompileTimeout: time.Second,
@@ -566,7 +566,7 @@ func TestStartWatcherInitialFailureIncrementsCompileErrors(t *testing.T) {
 	if got := getCounterValue(t, m.CompileErrors); got != 1 {
 		t.Fatalf("CompileErrors = %v, want 1", got)
 	}
-	if rf.GetBlacklist() != nil {
+	if rf.GetDenylist() != nil {
 		t.Fatal("expected no blacklist DFA after failed initial load")
 	}
 }
@@ -589,7 +589,7 @@ func TestSetupReturnsErrorForInvalidConfig(t *testing.T) {
 
 // TestSetupAllowsWatcherFailure verifies that operators can keep CoreDNS starting even when the initial filter directory is unreadable by asserting that setup remains successful.
 func TestSetupAllowsWatcherFailure(t *testing.T) {
-	c := caddy.NewTestController("dns", `regfilter { blacklist_dir /nonexistent/blacklist }`)
+	c := caddy.NewTestController("dns", `regfilter { denylist_dir /nonexistent/blacklist }`)
 	if err := setup(c); err != nil {
 		t.Fatalf("expected setup to stay fail-open, got error: %v", err)
 	}
@@ -647,9 +647,9 @@ func TestServeDNSDebugBlacklistMatch(t *testing.T) {
 	dfa, sources, patterns := buildMatcherWithSources(t, []filterlist.Rule{
 		{Pattern: "ads.example.com", Source: "/etc/coredns/blacklist/deny.txt:7"},
 	})
-	rf.SetBlacklist(dfa)
-	rf.blSources.Store(sources)
-	rf.blPatterns.Store(patterns)
+	rf.SetDenylist(dfa)
+	rf.dlSources.Store(sources)
+	rf.dlPatterns.Store(patterns)
 
 	w := newMockWriter()
 	r := makeQuery("ads.example.com", dns.TypeA)
@@ -682,9 +682,9 @@ func TestServeDNSDebugWhitelistMatch(t *testing.T) {
 	dfa, sources, patterns := buildMatcherWithSources(t, []filterlist.Rule{
 		{Pattern: "safe.example.com", Source: "/etc/coredns/whitelist/allow.txt:3"},
 	})
-	rf.SetWhitelist(dfa)
-	rf.wlSources.Store(sources)
-	rf.wlPatterns.Store(patterns)
+	rf.SetAllowlist(dfa)
+	rf.alSources.Store(sources)
+	rf.alPatterns.Store(patterns)
 
 	w := newMockWriter()
 	r := makeQuery("safe.example.com", dns.TypeA)
@@ -713,7 +713,7 @@ func TestServeDNSDebugNoMatch(t *testing.T) {
 			Debug:  true,
 		},
 	}
-	rf.SetBlacklist(buildMatcher(t, []string{"ads.example.com"}))
+	rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
 
 	w := newMockWriter()
 	r := makeQuery("clean.example.com", dns.TypeA)

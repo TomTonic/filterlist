@@ -63,11 +63,11 @@ func TestRunValidateCompilesRules(t *testing.T) {
 	writeFilterFile(t, blDir, "rules.txt", "||ads.example.com^\nexample.com##.ad-banner\n")
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"validate", "--blacklist", blDir}, &stdout, &stderr)
+	code := run([]string{"validate", "--denylist", blDir}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run(validate) code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "[blacklist] compiled:") {
+	if !strings.Contains(stdout.String(), "[denylist] compiled:") {
 		t.Fatalf("stdout = %q, want compile summary", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "WARN:") {
@@ -82,6 +82,7 @@ func TestRunMatchReportsPolicyDecision(t *testing.T) {
 	writeFilterFile(t, wlDir, "allow.txt", "@@||safe.example.com^\n")
 	writeFilterFile(t, blDir, "deny.txt", "||ads.example.com^\n")
 
+	//nolint:gosec // test data uses example domains, not credentials
 	tests := []struct {
 		name      string
 		args      []string
@@ -90,19 +91,19 @@ func TestRunMatchReportsPolicyDecision(t *testing.T) {
 	}{
 		{
 			name:      "whitelisted",
-			args:      []string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--name", "safe.example.com"},
+			args:      []string{"match", "--allowlist", wlDir, "--denylist", blDir, "--name", "safe.example.com"},
 			wantCode:  0,
-			wantToken: "WHITELISTED rule=allow.txt:1 (safe.example.com)",
+			wantToken: "ALLOWLISTED rule=allow.txt:1 (safe.example.com)",
 		},
 		{
-			name:      "blacklisted",
-			args:      []string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--name", "ads.example.com"},
+			name:      "denylisted",
+			args:      []string{"match", "--allowlist", wlDir, "--denylist", blDir, "--name", "ads.example.com"},
 			wantCode:  1,
-			wantToken: "BLACKLISTED rule=deny.txt:1 (ads.example.com)",
+			wantToken: "DENYLISTED rule=deny.txt:1 (ads.example.com)",
 		},
 		{
 			name:      "allowed",
-			args:      []string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--name", "clean.example.com"},
+			args:      []string{"match", "--allowlist", wlDir, "--denylist", blDir, "--name", "clean.example.com"},
 			wantCode:  0,
 			wantToken: "ALLOWED",
 		},
@@ -130,10 +131,10 @@ func TestRunDumpDotWritesOutput(t *testing.T) {
 	blDir := t.TempDir()
 	outDir := t.TempDir()
 	writeFilterFile(t, blDir, "deny.txt", "||*.ads.example.com^\n")
-	outPath := filepath.Join(outDir, "blacklist.dot")
+	outPath := filepath.Join(outDir, "denylist.dot")
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"dump-dot", "--blacklist", blDir, "--out", filepath.Join(outDir, "unused.dot") + "," + outPath}, &stdout, &stderr)
+	code := run([]string{"dump-dot", "--denylist", blDir, "--out", filepath.Join(outDir, "unused.dot") + "," + outPath}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run(dump-dot) code = %d, want 0", code)
 	}
@@ -266,9 +267,9 @@ func TestFilterRulesForList(t *testing.T) {
 		wantLen int
 		wantPat string
 	}{
-		{"blacklist keeps non-@@ rules", "blacklist", false, 1, "block.example.com"},
-		{"whitelist default keeps @@ rules", "whitelist", false, 1, "allow.example.com"},
-		{"whitelist inverted keeps non-@@ rules", "whitelist", true, 1, "block.example.com"},
+		{"denylist keeps non-@@ rules", "denylist", false, 1, "block.example.com"},
+		{"allowlist default keeps @@ rules", "allowlist", false, 1, "allow.example.com"},
+		{"allowlist inverted keeps non-@@ rules", "allowlist", true, 1, "block.example.com"},
 	}
 
 	for _, tt := range tests {
@@ -293,25 +294,25 @@ func TestRunMatchInvertWhitelist(t *testing.T) {
 	writeFilterFile(t, wlDir, "allow.txt", "||safe.example.com^\n")
 	writeFilterFile(t, blDir, "deny.txt", "||safe.example.com^\n||ads.example.com^\n")
 
-	// Without --invert-whitelist: ||safe.example.com^ has IsAllow=false, so it
-	// is filtered out of the whitelist. safe.example.com ends up BLACKLISTED.
+	// Without --invert-allowlist: ||safe.example.com^ has IsAllow=false, so it
+	// is filtered out of the allowlist. safe.example.com ends up DENYLISTED.
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--name", "safe.example.com"}, &stdout, &stderr)
+	code := run([]string{"match", "--allowlist", wlDir, "--denylist", blDir, "--name", "safe.example.com"}, &stdout, &stderr)
 	if code != 1 {
-		t.Fatalf("without invert: code = %d, want 1 (BLACKLISTED)", code)
+		t.Fatalf("without invert: code = %d, want 1 (DENYLISTED)", code)
 	}
-	if !strings.Contains(stdout.String(), "BLACKLISTED") {
-		t.Fatalf("without invert: stdout = %q, want BLACKLISTED", stdout.String())
+	if !strings.Contains(stdout.String(), "DENYLISTED") {
+		t.Fatalf("without invert: stdout = %q, want DENYLISTED", stdout.String())
 	}
 
-	// With --invert-whitelist: ||safe.example.com^ is now a whitelist entry.
+	// With --invert-allowlist: ||safe.example.com^ is now an allowlist entry.
 	stdout.Reset()
 	stderr.Reset()
-	code = run([]string{"match", "--whitelist", wlDir, "--blacklist", blDir, "--invert-whitelist", "--name", "safe.example.com"}, &stdout, &stderr)
+	code = run([]string{"match", "--allowlist", wlDir, "--denylist", blDir, "--invert-allowlist", "--name", "safe.example.com"}, &stdout, &stderr)
 	if code != 0 {
-		t.Fatalf("with invert: code = %d, want 0 (WHITELISTED)", code)
+		t.Fatalf("with invert: code = %d, want 0 (ALLOWLISTED)", code)
 	}
-	if !strings.Contains(stdout.String(), "WHITELISTED") {
-		t.Fatalf("with invert: stdout = %q, want WHITELISTED", stdout.String())
+	if !strings.Contains(stdout.String(), "ALLOWLISTED") {
+		t.Fatalf("with invert: stdout = %q, want ALLOWLISTED", stdout.String())
 	}
 }
