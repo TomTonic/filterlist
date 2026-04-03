@@ -260,13 +260,13 @@ Typical Prometheus ratios look like this:
 
 ```promql
 rate(coredns_regfilter_allowlist_hits_total[5m])
-/ 
+/
 rate(coredns_regfilter_allowlist_checks_total[5m])
 ```
 
 ```promql
 rate(coredns_regfilter_denylist_hits_total[5m])
-/ 
+/
 rate(coredns_regfilter_denylist_checks_total[5m])
 ```
 
