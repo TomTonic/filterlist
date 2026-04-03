@@ -108,7 +108,7 @@ func (c *Config) defaults() {
 	if c.MaxCompileTime == 0 {
 		c.MaxCompileTime = 30 * time.Second
 	}
-	if c.MaxStates == 0 {
+	if c.MaxStates < 0 {
 		c.MaxStates = 200000
 	}
 }

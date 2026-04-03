@@ -118,6 +118,45 @@ func TestParseConfigAcceptsValidFamiliesAndPositiveDurations(t *testing.T) {
 	}
 }
 
+// TestParseConfigMaxStatesAllowsUncapped verifies that administrators can
+// explicitly disable DFA state capping by setting max_states to zero.
+//
+// This test covers the plugin setup parsing path for DFA resource limits.
+//
+// It asserts that parseConfig accepts max_states 0 and stores it unchanged.
+func TestParseConfigMaxStatesAllowsUncapped(t *testing.T) {
+	c := caddy.NewTestController("dns", `filterlist {
+		denylist_dir /tmp/blacklist
+		max_states 0
+	}`)
+
+	cfg, err := parseConfig(c)
+	if err != nil {
+		t.Fatalf("parseConfig error: %v", err)
+	}
+	if cfg.MaxStates != 0 {
+		t.Fatalf("MaxStates = %d, want 0", cfg.MaxStates)
+	}
+}
+
+// TestParseConfigRejectsNegativeMaxStates verifies that administrators get a
+// validation error when max_states is configured below zero.
+//
+// This test covers numeric validation in the plugin setup parser.
+//
+// It asserts that parseConfig rejects negative values for max_states.
+func TestParseConfigRejectsNegativeMaxStates(t *testing.T) {
+	c := caddy.NewTestController("dns", `filterlist {
+		denylist_dir /tmp/blacklist
+		max_states -1
+	}`)
+
+	_, err := parseConfig(c)
+	if err == nil {
+		t.Fatal("expected parseConfig error for negative max_states")
+	}
+}
+
 // TestParseConfigRejectsNonPositiveDurations verifies that administrators get a
 // fast validation error for zero or negative timing knobs.
 //

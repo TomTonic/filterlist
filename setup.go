@@ -26,6 +26,9 @@ func setup(c *caddy.Controller) error {
 	if err != nil {
 		return plugin.Error("filterlist", err)
 	}
+	if cfg.MaxStates == 0 {
+		log.Warning("filterlist configured with max_states=0 (uncapped DFA state growth); use with care")
+	}
 
 	rf := &Plugin{
 		Config:  cfg,
@@ -166,7 +169,7 @@ func parseDirective(c *caddy.Controller, cfg *Config) error {
 		}
 		cfg.Debounce = duration
 	case "max_states":
-		value, err := parsePositiveInt(c, "max_states")
+		value, err := parseNonNegativeInt(c, "max_states")
 		if err != nil {
 			return err
 		}
@@ -252,8 +255,8 @@ func parsePositiveDuration(c *caddy.Controller, directive string) (time.Duration
 	return duration, nil
 }
 
-// parsePositiveInt validates positive integer limits such as max_states.
-func parsePositiveInt(c *caddy.Controller, directive string) (int, error) {
+// parseNonNegativeInt validates integer limits that allow zero (for uncapped mode).
+func parseNonNegativeInt(c *caddy.Controller, directive string) (int, error) {
 	value, err := nextArgValue(c)
 	if err != nil {
 		return 0, err
@@ -263,8 +266,8 @@ func parsePositiveInt(c *caddy.Controller, directive string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("invalid %s %q: %w", directive, value, err)
 	}
-	if parsed <= 0 {
-		return 0, fmt.Errorf("%s must be positive", directive)
+	if parsed < 0 {
+		return 0, fmt.Errorf("%s must be >= 0", directive)
 	}
 
 	return parsed, nil
