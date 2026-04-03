@@ -54,10 +54,7 @@ func isStrictDNSQueryName(qname string) bool {
 	}
 
 	_, err := idna.Lookup.ToUnicode(qname[:end])
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 // validateStrictDNSASCIIName validates RFC 1035 LDH syntax and length limits
