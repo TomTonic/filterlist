@@ -255,3 +255,139 @@ func TestLargeScale(t *testing.T) {
 		}
 	}
 }
+
+// TestCompileRulesPureDFAPreservesLiteralSuffixSemantics verifies that users
+// can switch to the pure-DFA matcher mode without losing ||domain^ semantics.
+//
+// This test covers the matcher package's full-DFA compilation path.
+//
+// It asserts that a literal domain rule still matches both the exact domain
+// and deeper subdomains when CompileRules runs in ModeDFA.
+func TestCompileRulesPureDFAPreservesLiteralSuffixSemantics(t *testing.T) {
+	rules := []listparser.Rule{{Pattern: "ads.example.com"}}
+
+	m, err := CompileRules(rules, CompileOptions{Mode: ModeDFA})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if m.LiteralCount() != 1 {
+		t.Fatalf("LiteralCount() = %d, want 1", m.LiteralCount())
+	}
+	if m.StateCount() == 0 {
+		t.Fatal("expected DFA states in pure DFA mode")
+	}
+
+	for _, input := range []string{"ads.example.com", "sub.ads.example.com", "a.b.ads.example.com"} {
+		matched, _ := m.Match(input)
+		if !matched {
+			t.Fatalf("expected Match(%q) to succeed in pure DFA mode", input)
+		}
+	}
+
+	matched, _ := m.Match("safe.example.com")
+	if matched {
+		t.Fatal("expected safe.example.com not to match in pure DFA mode")
+	}
+}
+
+// TestCompileRulesPureDFAMatchesHybrid verifies that users get the same match
+// decisions from the hybrid and pure-DFA modes for a mixed rule set.
+//
+// This test covers semantic equivalence between the two matcher runtime modes.
+//
+// It asserts that exact literals, subdomains of literals, wildcard hits, and
+// non-matches produce the same boolean results in both modes.
+func TestCompileRulesPureDFAMatchesHybrid(t *testing.T) {
+	rules := []listparser.Rule{
+		{Pattern: "ads.example.com"},
+		{Pattern: "*.tracker.example.com"},
+		{Pattern: "malware.example.org"},
+	}
+
+	hybrid, err := CompileRules(rules, CompileOptions{Mode: ModeHybrid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pure, err := CompileRules(rules, CompileOptions{Mode: ModeDFA})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, input := range []string{
+		"ads.example.com",
+		"sub.ads.example.com",
+		"foo.tracker.example.com",
+		"malware.example.org",
+		"safe.example.com",
+		"tracker.example.com",
+	} {
+		hybridMatched, _ := hybrid.Match(input)
+		pureMatched, _ := pure.Match(input)
+		if hybridMatched != pureMatched {
+			t.Fatalf("hybrid/pure mismatch for %q: hybrid=%v pure=%v", input, hybridMatched, pureMatched)
+		}
+	}
+}
+
+// TestCompileRulesWildcardSuffixSemantics verifies that wildcard host rules
+// keep the repository's suffix semantics in the default hybrid matcher mode.
+//
+// This test covers DFA-backed wildcard matching in the matcher package.
+//
+// It asserts that a parsed rule equivalent to ||www.ad*.example.com^ matches
+// both the exact hostname branch and deeper subdomains such as
+// 123.www.adxxx.example.com.
+func TestCompileRulesWildcardSuffixSemantics(t *testing.T) {
+	rules := []listparser.Rule{{Pattern: "www.ad*.example.com"}}
+
+	m, err := CompileRules(rules, CompileOptions{Mode: ModeHybrid})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, input := range []string{"www.adxxx.example.com", "123.www.adxxx.example.com"} {
+		matched, _ := m.Match(input)
+		if !matched {
+			t.Fatalf("expected Match(%q) to succeed in hybrid mode", input)
+		}
+	}
+
+	for _, input := range []string{"adxxx.example.com", "www.safe.example.com"} {
+		matched, _ := m.Match(input)
+		if matched {
+			t.Fatalf("expected Match(%q) to fail in hybrid mode", input)
+		}
+	}
+}
+
+// TestCompileRulesPureDFAWildcardSuffixSemantics verifies that wildcard host
+// rules keep the same suffix semantics in pure DFA mode.
+//
+// This test covers the full-DFA matcher compilation path for anchored wildcard
+// host rules.
+//
+// It asserts that the pure DFA matcher agrees with the hybrid matcher for a
+// rule equivalent to ||www.ad*.example.com^, including deeper subdomains.
+func TestCompileRulesPureDFAWildcardSuffixSemantics(t *testing.T) {
+	rules := []listparser.Rule{{Pattern: "www.ad*.example.com"}}
+
+	m, err := CompileRules(rules, CompileOptions{Mode: ModeDFA})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, input := range []string{"www.adxxx.example.com", "123.www.adxxx.example.com"} {
+		matched, _ := m.Match(input)
+		if !matched {
+			t.Fatalf("expected Match(%q) to succeed in pure DFA mode", input)
+		}
+	}
+
+	for _, input := range []string{"adxxx.example.com", "www.safe.example.com"} {
+		matched, _ := m.Match(input)
+		if matched {
+			t.Fatalf("expected Match(%q) to fail in pure DFA mode", input)
+		}
+	}
+}

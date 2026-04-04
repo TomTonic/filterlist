@@ -100,6 +100,30 @@ For very large filter lists, increase compile limits:
 }
 ```
 
+## Fully Compiled DFA Mode
+
+Use `matcher_mode dfa` when you want the lowest request-path lookup cost and
+can afford slower startup and reload compiles.
+
+```txt
+. {
+    filterlist {
+        denylist_dir /etc/coredns/denylist.d
+        action nxdomain
+        matcher_mode dfa
+        max_states 500000
+        compile_timeout 60s
+    }
+    forward . 8.8.8.8
+}
+```
+
+On the repository's `BenchmarkSequenceMapVsDFA` benchmark with the bundled
+realistic denylist samples, pure DFA mode reduced lookup cost from about
+125-135 ns/domain to about 93-95 ns/domain, but increased compile time from
+about 0.34 s to about 7.1 s. Keep the default `matcher_mode hybrid` unless
+you explicitly prefer lower steady-state lookup cost over reload speed.
+
 ## Whitelist Only Mode
 
 Use only a whitelist — all non-whitelisted domains will be forwarded normally.

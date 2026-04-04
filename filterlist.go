@@ -1,6 +1,6 @@
 // Package filterlist implements the CoreDNS filterlist plugin.
 // It intercepts DNS queries and checks them against allowlist and denylist
-// DFAs, blocking or allowing queries according to configuration.
+// matchers, blocking or allowing queries according to configuration.
 package filterlist
 
 import (
@@ -40,8 +40,8 @@ type ActionConfig struct {
 //
 // AllowlistDir and DenylistDir point at directories containing supported
 // filter list files. Action configures the DNS response for blocked names,
-// while Debounce, MaxStates, and CompileTimeout bound filesystem churn and DFA
-// compilation cost. InvertAllowlist controls which rules from the allowlist
+// while Debounce, MaxStates, and CompileTimeout bound filesystem churn and
+// matcher compilation cost. InvertAllowlist controls which rules from the allowlist
 // directory are compiled: by default (false) only @@-prefixed exception rules
 // are used; when true, non-@@ rules (||domain^) are used instead.
 //
@@ -55,6 +55,12 @@ type ActionConfig struct {
 // phase. When false (the default), queries whose names violate RFC 1035 LDH
 // syntax or the IDNA Lookup profile are blocked before the denylist matcher is
 // consulted.
+
+// MatcherMode selects how compiled rules are represented at runtime.
+// "hybrid" (the default) keeps literal domains in a suffix map and compiles
+// only wildcard patterns into a DFA. "dfa" compiles all rules into one DFA,
+// which can reduce per-query lookup cost at the expense of much longer
+// compile times during startup and reloads.
 //
 // Setup callers typically obtain Config via parseConfig.
 type Config struct {
@@ -68,11 +74,12 @@ type Config struct {
 	InvertAllowlist    bool
 	DenyNonAllowlisted bool
 	DisableRFCChecks   bool
+	MatcherMode        matcher.Mode
 }
 
 // Plugin is the CoreDNS plugin handler.
 //
-// Each Plugin instance owns the active whitelist and blacklist DFAs for one
+// Each Plugin instance owns the active whitelist and blacklist matchers for one
 // CoreDNS server block and swaps them atomically when reloads succeed. The
 // handler is created during setup and then used on the DNS request path.
 type Plugin struct {
@@ -150,7 +157,7 @@ func (rf *Plugin) GetDenylist() *matcher.Matcher {
 	return m
 }
 
-// ServeDNS evaluates r against the active DFAs and writes the response to w.
+// ServeDNS evaluates r against the active matchers and writes the response to w.
 //
 // The ctx, w, and r parameters are the standard CoreDNS request context,
 // response writer, and DNS message for the current query. ServeDNS returns the
@@ -340,7 +347,7 @@ func shortSource(source string) string {
 	return filepath.Base(source)
 }
 
-// StartWatcher starts filesystem monitoring and the initial DFA load.
+// StartWatcher starts filesystem monitoring and the initial matcher load.
 //
 // It uses the directories and limits from rf.Config, publishes metrics for
 // successful compiles and failed load or compile runs, and stores the stop
@@ -355,6 +362,7 @@ func (rf *Plugin) StartWatcher() error {
 		MaxCompileTime:  rf.Config.CompileTimeout,
 		MaxStates:       rf.Config.MaxStates,
 		InvertAllowlist: rf.Config.InvertAllowlist,
+		MatcherMode:     rf.Config.MatcherMode,
 		OnCompile: func(_ string, duration time.Duration) {
 			if rf.metrics != nil {
 				rf.metrics.CompileDuration.Observe(duration.Seconds())

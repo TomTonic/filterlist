@@ -4,10 +4,10 @@
 
 `filterlist` is a CoreDNS plugin for DNS-layer domain filtering. It
 loads supported host-based rules from whitelist and blacklist directories,
-compiles them into a hybrid matching structure, and evaluates DNS queries
-against that structure on the request path.
+compiles them into a matching structure, and evaluates DNS queries against
+that structure on the request path.
 
-The hybrid matcher splits rules at compile time:
+By default the matcher uses a hybrid structure and splits rules at compile time:
 
 - **Literal domain patterns** (typically 99%+ of real-world rules) are stored
   in a hash-based suffix map for O(k) lookup, where k is the number of DNS
@@ -19,6 +19,11 @@ The hybrid matcher splits rules at compile time:
 This split keeps compilation fast and memory bounded for lists that are
 dominated by literal entries, while retaining full wildcard support through the
 DFA path.
+
+When `matcher_mode dfa` is enabled, the plugin compiles every rule into a
+single DFA instead. Literal domain rules are expanded into an exact-match DFA
+pattern and a subdomain DFA pattern (`*.example.com`) so the pure-DFA mode
+preserves the same `||domain^` semantics as the default suffix-map path.
 
 The design goal is not to implement a full browser filter engine. The plugin
 focuses on the subset of AdGuard, EasyList, and hosts-style syntax that can be
@@ -66,9 +71,12 @@ pkg/matcher          (compositor)
   no dependency on the automaton or filter list parsing.
 
 - **`pkg/matcher`** is the compositor that callers use. It receives parsed
-  `listparser.Rule` values, classifies them as literal or wildcard, delegates
-  to `suffixmap.New` and `automaton.Compile`, and combines the results behind
-  a single `Matcher.Match` method.
+  `listparser.Rule` values and either:
+  - in `matcher_mode hybrid`, classifies them as literal or wildcard, delegates
+    to `suffixmap.New` and `automaton.Compile`, and combines the results behind
+    a single `Matcher.Match` method;
+  - in `matcher_mode dfa`, expands literal suffix rules into DFA-safe patterns
+    and compiles the full set through `automaton.Compile`.
 
 The watcher, plugin handler, and CLI tool all depend on `pkg/matcher` only.
 They do not import `pkg/automaton` or `pkg/suffixmap` directly.
@@ -102,7 +110,7 @@ watcher
        |      - whitelist: keep allow rules by default
        |      - whitelist + invert_whitelist: keep deny-style rules
        |
-       +--> CompileRules  (matcher splits: literals → suffix map, wildcards → DFA)
+      +--> CompileRules  (hybrid: literals → suffix map, wildcards → DFA; dfa: all rules → DFA)
        |
        +--> Snapshot{Matcher, rule count, state count, sources, patterns}
        |
@@ -220,16 +228,28 @@ For each directory, the watcher executes this pipeline:
 4. build a snapshot containing the Matcher, rule count, state count, sources, and patterns;
 5. publish the new snapshot atomically if compilation succeeded.
 
-The matcher splits rules internally:
+The matcher pipeline depends on `matcher_mode`:
 
-- Patterns without `*` are lowercased and stored in a hash-based suffix map.
-  The suffix map implements `||domain^` semantics: a stored entry `example.com`
-  matches both `example.com` itself and any subdomain such as `sub.example.com`.
-  Lookup cost is O(k) where k is the number of DNS labels.
+- In `hybrid` mode:
 
-- Patterns containing `*` are compiled through the automaton package:
-  Thompson-style NFA construction, subset construction, optional Hopcroft
-  minimization, and a cache-friendly array-based DFA for O(n) matching.
+  - Patterns without `*` are lowercased and stored in a hash-based suffix map.
+    The suffix map implements `||domain^` semantics: a stored entry `example.com`
+    matches both `example.com` itself and any subdomain such as `sub.example.com`.
+    Lookup cost is O(k) where k is the number of DNS labels.
+
+  - Patterns containing `*` are compiled through the automaton package:
+    Thompson-style NFA construction, subset construction, optional Hopcroft
+    minimization, and a cache-friendly array-based DFA for O(n) matching.
+
+- In `dfa` mode:
+
+  - Patterns containing `*` are compiled unchanged.
+  - Literal patterns are expanded into two DFA patterns: the exact host itself
+    and a `*.`-prefixed variant that covers subdomains without changing the
+    original filter semantics.
+  - This can reduce request-path lookup time, but it substantially increases
+    compile work during startup and hot reloads because every literal rule now
+    participates in the automaton pipeline.
 
 That internal pipeline is useful to know, but the externally visible contract
 is simpler: a directory compile either yields a new immutable snapshot or the

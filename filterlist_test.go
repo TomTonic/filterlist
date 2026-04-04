@@ -542,6 +542,54 @@ func TestStartWatcherLoadsInitialSnapshots(t *testing.T) {
 	}
 }
 
+// TestStartWatcherLoadsPureDFADenylist verifies that operators can enable the
+// full-DFA matcher mode and still keep the same denylist suffix semantics in
+// the live plugin watcher path.
+//
+// This test covers the plugin-to-watcher integration for matcher_mode dfa.
+//
+// It asserts that a literal denylist rule loaded through StartWatcher still
+// blocks both the exact domain and a deeper subdomain when the runtime matcher
+// is configured for pure DFA mode.
+func TestStartWatcherLoadsPureDFADenylist(t *testing.T) {
+	blDir := t.TempDir()
+	path := filepath.Join(blDir, "deny.txt")
+	if err := os.WriteFile(path, []byte("||ads.example.com^\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	rf := &Plugin{
+		Config: Config{
+			DenylistDir:    blDir,
+			Debounce:       50 * time.Millisecond,
+			MaxStates:      1000,
+			CompileTimeout: time.Second,
+			MatcherMode:    matcher.ModeDFA,
+		},
+	}
+
+	if err := rf.StartWatcher(); err != nil {
+		t.Fatalf("StartWatcher error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := rf.Stop(); err != nil {
+			t.Errorf("Stop error: %v", err)
+		}
+	})
+
+	bl := rf.GetDenylist()
+	if bl == nil {
+		t.Fatal("expected denylist matcher after StartWatcher")
+	}
+
+	for _, name := range []string{"ads.example.com", "sub.ads.example.com"} {
+		matched, _ := bl.Match(name)
+		if !matched {
+			t.Fatalf("expected denylist matcher to match %q in pure DFA mode", name)
+		}
+	}
+}
+
 // TestStartWatcherInitialFailureIncrementsCompileErrors verifies that operators can keep the plugin active while still observing startup load failures in the plugin package by asserting that StartWatcher succeeds, leaves no DFA loaded, and increments the compile error counter for unreadable directories.
 func TestStartWatcherInitialFailureIncrementsCompileErrors(t *testing.T) {
 	m, _ := newMetrics(t)

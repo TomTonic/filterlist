@@ -1,6 +1,6 @@
 // Package watcher provides fsnotify-based directory watching with debounced
-// DFA recompilation. It watches whitelist and blacklist directories and
-// rebuilds DFAs atomically when files change.
+// matcher recompilation. It watches whitelist and blacklist directories and
+// rebuilds compiled matchers atomically when files change.
 package watcher
 
 import (
@@ -60,6 +60,7 @@ type Config struct {
 	MaxCompileTime  time.Duration
 	MaxStates       int
 	InvertAllowlist bool
+	MatcherMode     matcher.Mode
 }
 
 // Snapshot describes one compiled filter set state.
@@ -272,7 +273,7 @@ func (w *dirWatcher) rebuild(which string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	w.cfg.Logger.Infof("watcher: rebuilding %s DFA", which)
+	w.cfg.Logger.Infof("watcher: rebuilding %s matcher", which)
 
 	switch which {
 	case "allowlist":
@@ -346,6 +347,7 @@ func (w *dirWatcher) compileDir(dir, label string) (Snapshot, compileReport) {
 	m, err := matcher.CompileRules(rules, matcher.CompileOptions{
 		MaxStates:      w.cfg.MaxStates,
 		CompileTimeout: w.cfg.MaxCompileTime,
+		Mode:           w.cfg.MatcherMode,
 		Logger:         &matcherLogger{w.cfg.Logger},
 	})
 	compileElapsed := time.Since(compileStarted)

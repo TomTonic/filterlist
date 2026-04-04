@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-//	filterlist-check validate --list DIR [--list DIR ...]
+//	filterlist-check validate --list DIR [--list DIR ...] [--matcher-mode hybrid|dfa]
 package main
 
 import (
@@ -70,6 +70,7 @@ Commands:
 
 Validate flags:
   --list DIR         List directory to validate (repeatable, at least one)
+	--matcher-mode M   Matcher mode: hybrid or dfa (default: hybrid)
   --max-states N     Maximum DFA states (0 disables the cap, default: 200000)`)
 }
 
@@ -97,6 +98,7 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var lists multiFlag
 	fs.Var(&lists, "list", "list directory to validate (repeatable)")
+	matcherMode := fs.String("matcher-mode", string(matcher.ModeHybrid), "matcher mode: hybrid or dfa")
 	maxStates := fs.Int("max-states", 200000, "maximum DFA states (0 disables limit)")
 	if err := fs.Parse(args); err != nil {
 		writef(stderr, "validate parse error: %v\n", err)
@@ -108,6 +110,11 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 	}
 	if *maxStates < 0 {
 		writeln(stderr, "error: --max-states must be >= 0")
+		return 1
+	}
+	mode, err := matcher.ParseMode(*matcherMode)
+	if err != nil {
+		writef(stderr, "error: %v\n", err)
 		return 1
 	}
 
@@ -129,14 +136,14 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 		}
 
 		writef(stdout, "[list:%d] compiling...\n", idx+1)
-		m, err := matcher.CompileRules(rules, matcher.CompileOptions{MaxStates: *maxStates, Logger: &logger})
+		m, err := matcher.CompileRules(rules, matcher.CompileOptions{MaxStates: *maxStates, Mode: mode, Logger: &logger})
 		if err != nil {
 			writef(stderr, "[list:%d] COMPILE ERROR: %v\n", idx+1, err)
 			exitCode = 1
 			continue
 		}
 
-		writef(stdout, "[list:%d] compiled: %d literals, %d DFA states\n", idx+1, m.LiteralCount(), m.StateCount())
+		writef(stdout, "[list:%d] compiled: mode=%s %d literals, %d DFA states\n", idx+1, mode, m.LiteralCount(), m.StateCount())
 	}
 
 	return exitCode

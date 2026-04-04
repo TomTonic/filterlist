@@ -12,6 +12,7 @@ import (
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
 
+	"github.com/TomTonic/filterlist/pkg/matcher"
 	rfmetrics "github.com/TomTonic/filterlist/pkg/metrics"
 )
 
@@ -103,6 +104,7 @@ func parseConfig(c *caddy.Controller) (Config, error) {
 		Debounce:       300 * time.Millisecond,
 		MaxStates:      200000,
 		CompileTimeout: 30 * time.Second,
+		MatcherMode:    matcher.ModeHybrid,
 	}
 
 	for c.Next() {
@@ -203,6 +205,16 @@ func parseDirective(c *caddy.Controller, cfg *Config) error {
 			return err
 		}
 		cfg.DisableRFCChecks = enabled
+	case "matcher_mode":
+		value, err := nextArgValue(c)
+		if err != nil {
+			return err
+		}
+		mode, err := matcher.ParseMode(value)
+		if err != nil {
+			return err
+		}
+		cfg.MatcherMode = mode
 	default:
 		return fmt.Errorf("unknown directive %q", c.Val())
 	}

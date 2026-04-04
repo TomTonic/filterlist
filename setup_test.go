@@ -8,6 +8,8 @@ import (
 	"github.com/coredns/caddy"
 	"github.com/coredns/coredns/plugin"
 	"github.com/miekg/dns"
+
+	"github.com/TomTonic/filterlist/pkg/matcher"
 )
 
 type namedHandler struct{ name string }
@@ -432,5 +434,56 @@ func TestParseConfigRejectsInvalidDenylistPrecheckBooleans(t *testing.T) {
 				t.Fatal("expected parseConfig error for invalid boolean value")
 			}
 		})
+	}
+}
+
+// TestParseConfigMatcherMode verifies that operators can select the matcher
+// runtime representation in the Corefile and that the default stays hybrid.
+//
+// This test covers parsing of the matcher_mode directive in the plugin setup
+// path.
+//
+// It asserts that matcher_mode defaults to hybrid, accepts dfa explicitly, and
+// stores the canonical mode value in the resulting Config.
+func TestParseConfigMatcherMode(t *testing.T) {
+	c := caddy.NewTestController("dns", `filterlist { denylist_dir /tmp/bl }`)
+	cfg, err := parseConfig(c)
+	if err != nil {
+		t.Fatalf("parseConfig error: %v", err)
+	}
+	if cfg.MatcherMode != matcher.ModeHybrid {
+		t.Fatalf("MatcherMode = %q, want %q", cfg.MatcherMode, matcher.ModeHybrid)
+	}
+
+	c = caddy.NewTestController("dns", `filterlist {
+		denylist_dir /tmp/bl
+		matcher_mode dfa
+	}`)
+	cfg, err = parseConfig(c)
+	if err != nil {
+		t.Fatalf("parseConfig error: %v", err)
+	}
+	if cfg.MatcherMode != matcher.ModeDFA {
+		t.Fatalf("MatcherMode = %q, want %q", cfg.MatcherMode, matcher.ModeDFA)
+	}
+}
+
+// TestParseConfigRejectsInvalidMatcherMode verifies that operators get a fast
+// setup error when matcher_mode is configured with an unsupported value.
+//
+// This test covers validation of the matcher_mode directive in the plugin
+// Corefile parser.
+//
+// It asserts that parseConfig rejects values other than the supported hybrid
+// and dfa modes.
+func TestParseConfigRejectsInvalidMatcherMode(t *testing.T) {
+	c := caddy.NewTestController("dns", `filterlist {
+		denylist_dir /tmp/bl
+		matcher_mode fast
+	}`)
+
+	_, err := parseConfig(c)
+	if err == nil {
+		t.Fatal("expected parseConfig error for invalid matcher_mode")
 	}
 }

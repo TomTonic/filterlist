@@ -1,8 +1,8 @@
 # filterlist
 
-`filterlist` is a CoreDNS plugin that filters DNS queries against a hybrid matching engine built from allowlist and denylist filter lists. It is designed for DNS-layer blocking of domain-based rules with predictable lookup latency and live reload support.
+`filterlist` is a CoreDNS plugin that filters DNS queries against an ultra fast hybrid matching engine built from allowlist and denylist filter lists. It is designed for DNS-layer blocking of domain-based rules with predictable lookup latency and live reload support.
 
-The plugin loads host-oriented rules from supported filter list formats, splits them into literal domain patterns (stored in a hash-based suffix map) and wildcard patterns (compiled into a minimized DFA), and evaluates each DNS question in this order:
+The plugin loads host-oriented rules from supported filter list formats and, by default, splits them into literal domain patterns (stored in a hash-based suffix map) and wildcard patterns (compiled into a minimized DFA). If you prefer a single fully compiled automaton, `matcher_mode dfa` compiles every rule into one DFA instead. Queries are evaluated in this order:
 
 1. Normalize the queried name.
 2. Check the allowlist matcher first.
@@ -16,7 +16,8 @@ That makes whitelist precedence explicit and keeps per-query matching on the hot
 `filterlist` enforces high-performance DNS policy and security controls—blocking unwanted or malicious domains, protecting internal services, and ensuring naming compliance. Designed for predictable per-query overhead and hot-reloadable rules for safe live updates.
 
 - **Filter list support**: Parses AdGuard, EasyList, ABP, and hosts-style filter lists
-- **Hybrid matching**: O(k) map structure for literal domains (without wildcards), O(n) DFA for domains with wildcards
+- **Selectable matcher mode**: default hybrid mode uses a suffix map for literals plus a DFA for wildcards; `matcher_mode dfa` compiles all rules into one DFA
+- **Ultra fast**: <200ns (0.0002ms) filtering time per query, less 10s for full compilation/DFA construction for standard AdGuard DNS filter list
 - **Hot reload**: Watches filter list directories and recompiles matchers on changes
 - **Allowlist precedence**: Domains in the allowlist are always allowed, even if blacklisted
 - **Multiple block actions**: NXDOMAIN, REFUSE, or null IP responses
@@ -185,6 +186,7 @@ Those tests assert that:
 | `invert_allowlist` | `false` | Use `\|\|domain^` instead of `@@\|\|domain^` for allowlist entries |
 | `deny_non_allowlisted` | `false` | Block every query that is not matched by the allowlist (deny-by-default mode) |
 | `disable_RFC_checks` | `false` | Disable the RFC 1035 / IDNA query-name validation precheck (default: checks are active) |
+| `matcher_mode` | `hybrid` | Runtime matcher representation: `hybrid` (suffix map + DFA) or `dfa` (fully compiled DFA) |
 
 ### Configuration Notes
 
@@ -207,6 +209,8 @@ Those tests assert that:
 - `debug` enables per-query log lines showing the matching list (allowlist or denylist), the queried name, the source file and line number, and the original rule pattern. Useful for verifying that rules behave as expected. The output appears at the `[INFO]` level in the CoreDNS log.
 - `deny_non_allowlisted on` enables deny-by-default mode: every query that is not explicitly matched by the allowlist is blocked in the denylist phase, before the denylist matcher is consulted. Requires at least one configured allowlist to be useful. Default is `off`.
 - `disable_RFC_checks` controls the RFC 1035 + IDNA Lookup-profile query-name precheck. When `off` (the default), queries whose names violate LDH syntax, label-length limits, or IDNA encoding are blocked immediately after the `deny_non_allowlisted` check and before the denylist matcher. The implementation uses a tight scan with per-label and total-length counters on the ASCII fast path and only calls IDNA conversion when it sees an ACE-prefix label (`xn--`). Set it to `on` to skip this check for environments that host non-standard names (for example, names with underscores used by some services).
+- `matcher_mode hybrid` is the default and keeps startup and reload compile times much lower by storing literal rules in the suffix map and compiling only wildcard rules into the DFA.
+- `matcher_mode dfa` compiles every rule into one DFA. In the `BenchmarkSequenceMapVsDFA` benchmark with the bundled realistic denylist samples and Cloudflare top-domain input, that reduced lookup cost from about `125-135 ns/domain` to about `93-95 ns/domain`, but increased compile time from about `0.34 s` to about `7.1 s`. Use it when request-path latency matters more than reload speed.
 
 ## Query Flow
 

@@ -151,3 +151,47 @@ func TestRunValidateAcceptsUncappedMaxStates(t *testing.T) {
 		t.Fatalf("stdout = %q, want compile summary", stdout.String())
 	}
 }
+
+// TestRunValidateAcceptsDFAMatcherMode verifies that operators can validate
+// list directories using the pure-DFA matcher mode from the CLI.
+//
+// This test covers the validate command flag handling for matcher-mode.
+//
+// It asserts that --matcher-mode dfa succeeds and reports the selected mode in
+// the compile summary.
+func TestRunValidateAcceptsDFAMatcherMode(t *testing.T) {
+	listDir := t.TempDir()
+	writeFilterFile(t, listDir, "rules.txt", "||ads.example.com^\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"validate", "--list", listDir, "--matcher-mode", "dfa"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run(validate --matcher-mode dfa) code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "mode=dfa") {
+		t.Fatalf("stdout = %q, want mode=dfa compile summary", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "ERROR:") {
+		t.Fatalf("stderr = %q, want no errors", stderr.String())
+	}
+}
+
+// TestRunValidateRejectsInvalidMatcherMode verifies that operators receive a
+// clear validation error for unsupported matcher modes.
+//
+// This test covers validation of the validate command's matcher-mode flag.
+//
+// It asserts that values other than hybrid or dfa cause the command to fail.
+func TestRunValidateRejectsInvalidMatcherMode(t *testing.T) {
+	listDir := t.TempDir()
+	writeFilterFile(t, listDir, "rules.txt", "||ads.example.com^\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"validate", "--list", listDir, "--matcher-mode", "fast"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("run(validate --matcher-mode fast) code = %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown matcher mode") {
+		t.Fatalf("stderr = %q, want matcher-mode validation message", stderr.String())
+	}
+}

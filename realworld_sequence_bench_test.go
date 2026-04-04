@@ -37,7 +37,7 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 	domains := loadDomainsFromCSV(b, csvPath)
 
 	// Allow overriding a single sequence size via env var.
-	sizes := []int{2_000, 20_000, 200_000}
+	sizes := []int{25_000, 50_000, 100_000}
 	if v := os.Getenv("BENCH_SEQ_SIZE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			sizes = []int{n}

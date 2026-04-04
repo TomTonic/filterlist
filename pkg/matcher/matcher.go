@@ -1,12 +1,15 @@
-// Package matcher composes a [suffixmap.SuffixMap] for literal domain patterns
-// and an [automaton.DFA] for wildcard patterns into a single match interface.
+// Package matcher composes DNS rule matchers into a single match interface.
 //
-// Filter list rules are split at compile time: patterns without wildcards are
-// stored in a hash-based suffix map for O(k) lookup (k = number of DNS labels),
-// while patterns containing '*' are compiled into a minimized DFA for O(n)
-// matching (n = input length). This hybrid approach keeps compilation fast for
-// the vast majority of rules (typically 99%+ are literal) while retaining full
+// By default the package uses a hybrid representation: patterns without
+// wildcards are stored in a hash-based suffix map for O(k) lookup (k = number
+// of DNS labels), while patterns containing '*' are compiled into a minimized
+// DFA for O(n) matching (n = input length). This keeps compilation fast for the
+// vast majority of rules (typically 99%+ are literal) while retaining full
 // wildcard support.
+//
+// Callers can also request a pure DFA representation that compiles every rule
+// into one automaton. In that mode literal suffix rules are expanded so the DFA
+// preserves the same ||domain^ semantics as the default suffix-map path.
 //
 // Example usage:
 //
@@ -31,33 +34,74 @@ type Logger interface {
 	Infof(format string, args ...interface{})
 }
 
+// Mode selects how the matcher represents parsed rules at runtime.
+//
+// ModeHybrid stores literal rules in a suffix map and compiles only wildcard
+// rules into a DFA. ModeDFA compiles every rule into one DFA. To preserve the
+// suffix semantics of literal rules, ModeDFA expands each literal domain into
+// an exact-match pattern and a subdomain pattern.
+type Mode string
+
+const (
+	// ModeHybrid keeps literal domains in the suffix map and uses the DFA only
+	// for wildcard patterns. This is the default mode.
+	ModeHybrid Mode = "hybrid"
+
+	// ModeDFA compiles all rules into a single DFA, including literal domain
+	// rules expanded to cover both the exact host and its subdomains.
+	ModeDFA Mode = "dfa"
+)
+
+// ParseMode validates a textual matcher mode and returns its canonical form.
+//
+// Accepted values are "hybrid", "dfa", and "pure_dfa". The latter is kept as
+// a compatibility alias and normalizes to ModeDFA.
+func ParseMode(value string) (Mode, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", string(ModeHybrid):
+		return ModeHybrid, nil
+	case string(ModeDFA), "pure_dfa":
+		return ModeDFA, nil
+	default:
+		return "", fmt.Errorf("unknown matcher mode %q (must be hybrid or dfa)", value)
+	}
+}
+
 // CompileOptions controls compilation behavior.
 //
 // MaxStates limits the DFA state count during subset construction (0 = no limit).
 // CompileTimeout aborts compilation if the deadline is exceeded.
 // Minimize can be set to false to skip Hopcroft minimization (defaults to true).
+// Mode selects the runtime representation for compiled rules. The zero value
+// defaults to ModeHybrid.
 // Logger receives progress messages; nil silences output.
 type CompileOptions struct {
 	MaxStates      int
 	CompileTimeout time.Duration
 	Minimize       *bool
+	Mode           Mode
 	Logger         Logger
 }
 
-// Matcher holds a compiled suffix map for literal patterns and a DFA for
-// wildcard patterns. It is safe for concurrent reads after construction.
+// Matcher holds the compiled runtime structures for one ruleset. Depending on
+// the selected mode it may use a suffix map, a DFA, or both. It is safe for
+// concurrent reads after construction.
 type Matcher struct {
-	literals *suffixmap.SuffixMap
-	dfa      *automaton.DFA
+	literals     *suffixmap.SuffixMap
+	dfa          *automaton.DFA
+	literalCount int
 }
 
-// CompileRules splits rules into literal and wildcard patterns, builds a
-// suffix map for the literals, and compiles the wildcards into a DFA.
+// CompileRules compiles parsed rules into the runtime representation selected
+// by opts.Mode.
 //
 // The rules parameter contains parsed filter list entries. Each rule's Pattern
-// field is inspected: patterns without '*' are treated as literal domain
-// suffixes; patterns containing '*' are compiled through the automaton package.
-// Rule indices are used as rule IDs for match attribution.
+// field is inspected and lowercased. In the default hybrid mode, patterns
+// without '*' are treated as literal domain suffixes and stored in the suffix
+// map, while patterns containing '*' are compiled through the automaton
+// package. In pure DFA mode, every rule is compiled through the automaton and
+// literal rules are expanded to preserve suffix semantics. Rule indices are
+// used as rule IDs for match attribution.
 //
 // Returns an error if DFA compilation fails (e.g. state limit exceeded or
 // timeout). An empty rule set produces a valid Matcher that never matches.
@@ -67,6 +111,8 @@ func CompileRules(rules []listparser.Rule, opts CompileOptions) (*Matcher, error
 		logf = opts.Logger.Infof
 	}
 
+	mode := normalizeMode(opts.Mode)
+
 	// Split rules into literals and wildcards.
 	literalEntries := make(map[string][]uint32)
 	var wildcardPatterns []automaton.Pattern
@@ -74,17 +120,28 @@ func CompileRules(rules []listparser.Rule, opts CompileOptions) (*Matcher, error
 	for i, r := range rules {
 		pattern := strings.ToLower(r.Pattern)
 		if strings.Contains(pattern, "*") {
-			wildcardPatterns = append(wildcardPatterns, automaton.Pattern{
-				Expr:   pattern,
-				RuleID: uint32(i),
-			})
+			wildcardPatterns = appendDFAPatternVariants(wildcardPatterns, pattern, uint32(i))
 		} else {
 			literalEntries[pattern] = append(literalEntries[pattern], uint32(i))
 		}
 	}
 
-	logf("matcher: %d rules → %d literal, %d wildcard",
-		len(rules), len(literalEntries), len(wildcardPatterns))
+	logf("matcher: %d rules → %d literal, %d wildcard, mode=%s",
+		len(rules), len(literalEntries), len(wildcardPatterns), mode)
+
+	if mode == ModeDFA {
+		dfa, err := automaton.Compile(buildDFAPatterns(rules), automaton.CompileOptions{
+			MaxStates:      opts.MaxStates,
+			CompileTimeout: opts.CompileTimeout,
+			Minimize:       opts.Minimize,
+			Logger:         adaptLogger(opts.Logger),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("matcher: compile DFA: %w", err)
+		}
+
+		return &Matcher{dfa: dfa, literalCount: len(literalEntries)}, nil
+	}
 
 	// Build suffix map for literals.
 	sm := suffixmap.New(literalEntries)
@@ -104,7 +161,7 @@ func CompileRules(rules []listparser.Rule, opts CompileOptions) (*Matcher, error
 		}
 	}
 
-	return &Matcher{literals: sm, dfa: dfa}, nil
+	return &Matcher{literals: sm, dfa: dfa, literalCount: len(literalEntries)}, nil
 }
 
 // Match checks input against both the literal suffix map and the wildcard DFA.
@@ -137,8 +194,8 @@ func (m *Matcher) Match(input string) (matched bool, ruleIDs []uint32) {
 	return matched, ruleIDs
 }
 
-// StateCount returns the number of DFA states for the wildcard patterns.
-// Returns 0 when no wildcard patterns were compiled.
+// StateCount returns the number of DFA states held by the matcher.
+// Returns 0 when no DFA was compiled.
 func (m *Matcher) StateCount() int {
 	if m == nil || m.dfa == nil {
 		return 0
@@ -147,12 +204,50 @@ func (m *Matcher) StateCount() int {
 }
 
 // LiteralCount returns the number of distinct literal domain patterns in the
-// suffix map.
+// compiled rule set, regardless of whether they are backed by the suffix map
+// or expanded into the DFA.
 func (m *Matcher) LiteralCount() int {
-	if m == nil || m.literals == nil {
+	if m == nil {
 		return 0
 	}
-	return m.literals.Len()
+	return m.literalCount
+}
+
+func normalizeMode(mode Mode) Mode {
+	parsed, err := ParseMode(string(mode))
+	if err != nil {
+		return ModeHybrid
+	}
+	return parsed
+}
+
+// buildDFAPatterns expands rules into DFA patterns that preserve the
+// repository's suffix semantics for host-style filters.
+func buildDFAPatterns(rules []listparser.Rule) []automaton.Pattern {
+	patterns := make([]automaton.Pattern, 0, len(rules)*2)
+	for i, rule := range rules {
+		pattern := strings.ToLower(rule.Pattern)
+		patterns = appendDFAPatternVariants(patterns, pattern, uint32(i))
+	}
+	return patterns
+}
+
+// appendDFAPatternVariants adds the exact DFA pattern plus, when required, a
+// synthetic subdomain variant so DFA-backed matching preserves ||domain^
+// semantics for both literal and wildcard host rules.
+func appendDFAPatternVariants(patterns []automaton.Pattern, pattern string, ruleID uint32) []automaton.Pattern {
+	patterns = append(patterns, automaton.Pattern{Expr: pattern, RuleID: ruleID})
+	if needsSubdomainVariant(pattern) {
+		patterns = append(patterns, automaton.Pattern{Expr: "*." + pattern, RuleID: ruleID})
+	}
+	return patterns
+}
+
+func needsSubdomainVariant(pattern string) bool {
+	if !strings.Contains(pattern, ".") {
+		return false
+	}
+	return !strings.HasPrefix(pattern, "*.")
 }
 
 func nopLogf(string, ...interface{}) {}
