@@ -55,7 +55,7 @@ type ActionConfig struct {
 // phase. When false (the default), queries whose names violate RFC 1035 LDH
 // syntax or the IDNA Lookup profile are blocked before the denylist matcher is
 // consulted.
-
+//
 // MatcherMode selects how compiled rules are represented at runtime.
 // "hybrid" (the default) keeps literal domains in a suffix map and compiles
 // only wildcard patterns into a DFA. "dfa" compiles all rules into one DFA,

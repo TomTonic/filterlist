@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+//nolint:unparam // name parameter intentionally kept for test API parity
 func writeFilterFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
