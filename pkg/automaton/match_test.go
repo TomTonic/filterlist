@@ -219,16 +219,20 @@ func TestMatchNonDNSCharacters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Non-DNS chars should cause immediate non-match, never panic
-	inputs := []string{
-		"EXAMPLE.COM",
+	// Uppercase is accepted via case-insensitive byteIndex.
+	matched, _ := dfa.Match("EXAMPLE.COM")
+	if !matched {
+		t.Error("Match(\"EXAMPLE.COM\") should match (case-insensitive)")
+	}
+
+	// Non-DNS chars should cause immediate non-match, never panic.
+	for _, input := range []string{
 		"example.com/path",
 		"example.com:8080",
 		"example com",
 		"example\x00com",
 		"exämple.com",
-	}
-	for _, input := range inputs {
+	} {
 		matched, _ := dfa.Match(input)
 		if matched {
 			t.Errorf("Match(%q) = true, want false (non-DNS input)", input)
@@ -269,10 +273,10 @@ func TestMatchWildcardOnly(t *testing.T) {
 		}
 	}
 
-	// Non-DNS chars still don't match
+	// Uppercase is accepted via case-insensitive byteIndex.
 	matched, _ := dfa.Match("UPPER")
-	if matched {
-		t.Error("wildcard should not match non-DNS characters")
+	if !matched {
+		t.Error("wildcard should match uppercase letters (case-insensitive)")
 	}
 }
 
@@ -792,7 +796,7 @@ func TestMatchDomainEmptyInput(t *testing.T) {
 }
 
 // TestMatchDomainNonDNSCharacters verifies that MatchDomain returns early on
-// invalid DNS characters.
+// invalid DNS characters but accepts uppercase via case-insensitive byteIndex.
 func TestMatchDomainNonDNSCharacters(t *testing.T) {
 	rules := []Pattern{{Expr: "moc.elpmaxe"}}
 	dfa, err := Compile(rules, CompileOptions{})
@@ -800,7 +804,13 @@ func TestMatchDomainNonDNSCharacters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, input := range []string{"EXAMPLE.COM", "example.com/path", "exämple.com"} {
+	// Uppercase is accepted (case-insensitive).
+	if matched, _ := dfa.MatchDomain("EXAMPLE.COM"); !matched {
+		t.Error("MatchDomain(\"EXAMPLE.COM\") should match (case-insensitive)")
+	}
+
+	// Non-DNS chars still cause early exit.
+	for _, input := range []string{"example.com/path", "exämple.com"} {
 		matched, _ := dfa.MatchDomain(input)
 		if matched {
 			t.Errorf("MatchDomain(%q) should not match (non-DNS input)", input)

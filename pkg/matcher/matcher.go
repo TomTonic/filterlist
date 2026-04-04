@@ -182,10 +182,14 @@ func CompileRules(rules []listparser.Rule, opts CompileOptions) (*Matcher, error
 
 // Match checks input against both the literal suffix map and the wildcard DFA.
 //
-// The input parameter should be a lowercase domain name without trailing dot.
+// The input parameter should be a domain name without trailing dot.
 // Returns true if any stored pattern matches, along with all matching rule IDs.
 // The suffix map is checked first; if both literal and wildcard patterns match,
 // all rule IDs are combined.
+//
+// In pure DFA mode (no suffix map) the [byteIndex] table inside the automaton
+// handles case-insensitivity, so strings.ToLower is skipped and the
+// [automaton.DFA.MatchDomain] result is returned directly — zero allocation.
 //
 // The DFA was compiled from reversed patterns, so Match delegates to
 // [automaton.DFA.MatchDomain] which walks the input backwards and checks
@@ -195,31 +199,38 @@ func (m *Matcher) Match(input string) (matched bool, ruleIDs []uint32) {
 		return false, nil
 	}
 
-	input = strings.ToLower(input)
-	var suffixmapIDs []uint32
-	var dfaIDs []uint32
-
-	if m.literals != nil {
-		if hit, ids := m.literals.Match(input); hit {
-			matched = true
-			suffixmapIDs = ids
+	// Fast path: pure DFA mode — byteIndex handles case, skip ToLower.
+	if m.literals == nil {
+		if m.dfa != nil {
+			return m.dfa.MatchDomain(input)
 		}
+		return false, nil
+	}
+
+	// Hybrid mode: lowercase needed for the suffix map.
+	input = strings.ToLower(input)
+
+	var firstIDs []uint32
+
+	if hit, ids := m.literals.Match(input); hit {
+		matched = true
+		firstIDs = ids
 	}
 
 	if m.dfa != nil {
 		if hit, ids := m.dfa.MatchDomain(input); hit {
-			matched = true
-			dfaIDs = ids
+			if !matched {
+				return true, ids
+			}
+			// Both matched — allocate and merge.
+			merged := make([]uint32, 0, len(firstIDs)+len(ids))
+			merged = append(merged, firstIDs...)
+			merged = append(merged, ids...)
+			return true, merged
 		}
 	}
 
-	if matched {
-		merged := make([]uint32, 0, len(suffixmapIDs)+len(dfaIDs))
-		merged = append(merged, suffixmapIDs...)
-		merged = append(merged, dfaIDs...)
-		return true, merged
-	}
-	return false, nil
+	return matched, firstIDs
 }
 
 // StateCount returns the number of DFA states held by the matcher.

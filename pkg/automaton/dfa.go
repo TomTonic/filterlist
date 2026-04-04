@@ -17,6 +17,9 @@ func init() {
 	for r := byte('a'); r <= byte('z'); r++ {
 		byteIndex[r] = r - 'a'
 	}
+	for r := byte('A'); r <= byte('Z'); r++ {
+		byteIndex[r] = r - 'A'
+	}
 	for r := byte('0'); r <= byte('9'); r++ {
 		byteIndex[r] = 26 + r - '0'
 	}
@@ -50,22 +53,35 @@ type ruleSpan struct {
 	len   int
 }
 
+// transAcceptBit marks the target state as accepting. Stored in bit 31
+// of each d.trans entry alongside the target state index in bits 0–30.
+const transAcceptBit uint32 = 1 << 31
+
+// transStateMask extracts the target state index (bits 0–30).
+const transStateMask uint32 = transAcceptBit - 1
+
 // DFA is a compiled deterministic finite automaton for domain name matching.
 //
-// Matching uses a compact runtime layout: transitions are stored in a flat
-// []uint32 array, accepts in a dense []bool, and rule IDs in one packed data
-// block referenced by per-state spans. This keeps the hot path smaller and
-// more cache-friendly than traversing the exported pointer-linked states.
+// The runtime layout encodes each transition as a uint32 with the target
+// state index in bits 0–30 and the target's accept flag in bit 31.
+// [noTransitionState] (0xFFFFFFFF) represents "no transition".
+// Embedding the accept flag lets [DFA.MatchDomain] check acceptance from
+// the same value it already loaded for the transition — no separate array
+// access needed at domain-boundary positions.
 //
-// The pointer-linked state graph is still materialized in [states] and [start]
-// for tests and diagnostics inside the package.
+// [byteIndex] maps both upper- and lowercase ASCII letters to the same
+// alphabet index, making [DFA.Match] and [DFA.MatchDomain] inherently
+// case-insensitive. Callers need not lowercase their input.
+//
+// The pointer-linked state graph is still materialized in [states] and
+// [start] for tests and diagnostics.
 //
 // Create a DFA with [Compile]; query it with [DFA.Match].
 type DFA struct {
 	start      *DFAState
 	states     []DFAState
 	startIndex int
-	trans      []uint32
+	trans      []uint32 // (acceptBit<<31) | targetStateIndex
 	accept     []bool
 	ruleSpans  []ruleSpan
 	ruleIDData []uint32
@@ -74,10 +90,10 @@ type DFA struct {
 // Match checks whether input is accepted by the compiled DFA and returns the
 // matching rule IDs.
 //
-// The input parameter should be a lowercase DNS domain name. Match traverses
-// the DFA one rune at a time in O(n) where n = len(input). It returns false
-// immediately when a rune falls outside the DNS alphabet or leads to a dead
-// end (nil transition pointer).
+// The input parameter should be a DNS domain name. Case is handled
+// transparently by [byteIndex]. Match traverses the DFA one byte at a time
+// in O(n) where n = len(input). It returns false immediately when a byte
+// falls outside the DNS alphabet or leads to a dead end.
 //
 // A nil or empty DFA always returns (false, nil).
 func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
@@ -85,19 +101,30 @@ func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
 		return false, nil
 	}
 
+	trans := d.trans
 	state := d.startIndex
-	for i := 0; i < len(input); i++ {
+	n := len(input)
+
+	if n == 0 {
+		if d.accept[state] {
+			return true, d.ruleIDsForState(state)
+		}
+		return false, nil
+	}
+
+	var lastP uint32
+	for i := 0; i < n; i++ {
 		idx := byteIndex[input[i]]
 		if idx == noAlphabetIndex {
 			return false, nil
 		}
-		next := d.trans[state*AlphabetSize+int(idx)]
-		if next == noTransitionState {
+		lastP = trans[state*AlphabetSize+int(idx)]
+		if lastP == noTransitionState {
 			return false, nil
 		}
-		state = int(next) //nolint:gosec // state IDs originate from compiler-built DFA transitions
+		state = int(lastP & transStateMask)
 	}
-	if d.accept[state] {
+	if lastP&transAcceptBit != 0 {
 		return true, d.ruleIDsForState(state)
 	}
 	return false, nil
@@ -120,8 +147,13 @@ func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
 // "*.<pattern>" variants for every rule, which caused exponential DFA state
 // explosion when the original pattern already contained wildcards.
 //
-// The input parameter should be a lowercase DNS domain name without trailing
-// dot. A nil or empty DFA always returns (false, nil).
+// Each d.trans entry stores the target state index in bits 0–30 and the
+// accept flag in bit 31, so boundary accept checks read the already-loaded
+// transition value — no separate d.accept array access required.
+//
+// The input parameter should be a DNS domain name without trailing dot.
+// Case is handled transparently by [byteIndex]. A nil or empty DFA always
+// returns (false, nil).
 //
 // Typical callers are [matcher.Matcher.Match] and other high-level entry
 // points that compile reversed patterns via [Compile]. For raw exact-match
@@ -131,6 +163,7 @@ func (d *DFA) MatchDomain(input string) (matched bool, ruleIDs []uint32) {
 		return false, nil
 	}
 
+	trans := d.trans
 	state := d.startIndex
 	n := len(input)
 
@@ -148,16 +181,16 @@ func (d *DFA) MatchDomain(input string) (matched bool, ruleIDs []uint32) {
 		if idx == noAlphabetIndex {
 			break
 		}
-		next := d.trans[state*AlphabetSize+int(idx)]
-		if next == noTransitionState {
+		p := trans[state*AlphabetSize+int(idx)]
+		if p == noTransitionState {
 			break
 		}
-		state = int(next) //nolint:gosec // state IDs originate from compiler-built DFA transitions
+		state = int(p & transStateMask)
 
 		if i > 0 && input[i-1] != '.' {
 			continue
 		}
-		if !d.accept[state] {
+		if p&transAcceptBit == 0 {
 			continue
 		}
 
@@ -225,10 +258,15 @@ func (d *DFA) StateCount() int {
 }
 
 // toDFA converts an intermediate DFA (used during compilation) to the
-// exported pointer-based [DFA].
+// exported [DFA].
 //
 // The conversion allocates all [DFAState] values in a single contiguous slice
-// and then patches transition entries to point directly into that slice.
+// and patches transition entries to point directly into that slice. Once the
+// pointer-based representation is built, the flat transition table is
+// re-encoded in-place to store pre-multiplied base offsets
+// (targetState × [AlphabetSize]) with the accept flag in bit 31. This
+// encoding is consumed by [DFA.Match] and [DFA.MatchDomain] at runtime.
+//
 // For large state counts the patching work is distributed across goroutines,
 // where each goroutine processes a disjoint chunk of the state slice.
 func (md *intermediateDFA) toDFA() *DFA {
@@ -265,6 +303,7 @@ func (md *intermediateDFA) toDFA() *DFA {
 		d.ruleSpans[i] = ruleSpan{start: start, len: len(ids)}
 	}
 
+	// Build pointer-based state graph from raw state indices in d.trans.
 	numWorkers := runtime.GOMAXPROCS(0)
 
 	if n >= numWorkers*64 && numWorkers > 1 {
@@ -309,5 +348,18 @@ func (md *intermediateDFA) toDFA() *DFA {
 	}
 
 	d.start = &d.states[d.startIndex]
+
+	// Re-encode d.trans in-place: set the accept bit (bit 31) for each
+	// transition whose target state is accepting. After this point d.trans
+	// entries are consumed only by Match/MatchDomain.
+	for i, t := range d.trans {
+		if t != noTransitionState {
+			target := int(t) //nolint:gosec // bounded by state count
+			if d.accept[target] {
+				d.trans[i] = t | transAcceptBit
+			}
+		}
+	}
+
 	return d
 }

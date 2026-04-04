@@ -32,7 +32,10 @@
 // # Performance Design
 //
 // Every design choice in the runtime [DFA] favors O(n) match-time performance:
-//   - Runtime transitions live in one compact flat []uint32 table
+//   - Transition entries embed the target's accept flag in bit 31, avoiding
+//     a separate accept-array load at domain-boundary positions
+//   - [byteIndex] maps both upper- and lowercase ASCII letters to the same
+//     index, making Match/MatchDomain inherently case-insensitive
 //   - Accept flags and rule IDs are split into dense side arrays for locality
 //   - [DFA.Match] and [DFA.MatchDomain] use byte-indexed hot loops
 //   - Exported [DFAState] values are still materialized for tests and diagnostics
