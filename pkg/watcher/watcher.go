@@ -136,9 +136,12 @@ func Start(cfg *Config) (stop func() error, err error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	w := &dirWatcher{
-		cfg:    *cfg,
-		ctx:    ctx,
-		cancel: cancel,
+		cfg:               *cfg,
+		ctx:               ctx,
+		cancel:            cancel,
+		watchTargets:      configuredWatchTargets(cfg.AllowlistDir, cfg.DenylistDir),
+		watched:           make(map[string]bool, 2),
+		watchPendingError: make(map[string]bool, 2),
 	}
 
 	// Initial compile
@@ -164,14 +167,10 @@ func Start(cfg *Config) (stop func() error, err error) {
 	}
 	w.fsw = fsw
 
-	// Watch directories (non-fatal if missing)
-	for _, dir := range []string{cfg.AllowlistDir, cfg.DenylistDir} {
-		if dir == "" {
-			continue
-		}
-		if err := fsw.Add(dir); err != nil {
-			cfg.Logger.Warnf("watcher: cannot watch %s: %v (will not hot-reload)", dir, err)
-		}
+	// Watch directories (non-fatal if missing). Missing paths are retried in
+	// the event loop so hot-reload recovers when directories appear later.
+	for _, dir := range w.watchTargets {
+		w.tryAddWatch(dir)
 	}
 
 	w.wg.Add(1)
@@ -187,6 +186,10 @@ type dirWatcher struct {
 	cancel context.CancelFunc
 	fsw    *fsnotify.Watcher
 	wg     sync.WaitGroup
+
+	watchTargets      []string
+	watched           map[string]bool
+	watchPendingError map[string]bool
 
 	mu     sync.Mutex // protects compileDir calls
 	lastAL Snapshot
@@ -211,6 +214,8 @@ func (w *dirWatcher) loop() {
 	)
 	allowlistCh := make(chan time.Time, 1)
 	denylistCh := make(chan time.Time, 1)
+	retryTicker := time.NewTicker(w.watchRetryInterval())
+	defer retryTicker.Stop()
 
 	for {
 		select {
@@ -228,6 +233,7 @@ func (w *dirWatcher) loop() {
 				return
 			}
 			w.cfg.Logger.Infof("watcher: event %s on %s", event.Op, event.Name)
+			w.handleWatchEvent(event)
 
 			// Determine which directory changed
 			if isUnder(event.Name, w.cfg.AllowlistDir) {
@@ -259,11 +265,116 @@ func (w *dirWatcher) loop() {
 		case <-denylistCh:
 			w.rebuild("denylist")
 
+		case <-retryTicker.C:
+			w.retryMissingWatches()
+
 		case err, ok := <-w.fsw.Errors:
 			if !ok {
 				return
 			}
 			w.cfg.Logger.Errorf("watcher: fsnotify error: %v", err)
+		}
+	}
+}
+
+// configuredWatchTargets normalizes and deduplicates configured watch paths.
+func configuredWatchTargets(allowlistDir, denylistDir string) []string {
+	targets := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+	for _, dir := range []string{allowlistDir, denylistDir} {
+		if dir == "" {
+			continue
+		}
+		clean := filepath.Clean(dir)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		targets = append(targets, clean)
+	}
+
+	return targets
+}
+
+// watchRetryInterval computes how often missing watches are retried.
+func (w *dirWatcher) watchRetryInterval() time.Duration {
+	interval := w.cfg.Debounce
+	if interval < 250*time.Millisecond {
+		interval = 250 * time.Millisecond
+	}
+	if interval > 2*time.Second {
+		interval = 2 * time.Second
+	}
+
+	return interval
+}
+
+// tryAddWatch attempts to add one configured directory to fsnotify.
+func (w *dirWatcher) tryAddWatch(dir string) {
+	clean := filepath.Clean(dir)
+	if w.watched[clean] {
+		return
+	}
+	wasPending := w.watchPendingError[clean]
+	if err := w.fsw.Add(clean); err != nil {
+		w.cfg.Logger.Warnf("watcher: cannot watch %s: %v (will retry)", clean, err)
+		w.watchPendingError[clean] = true
+		w.watched[clean] = false
+		return
+	}
+
+	// Mark the target as watched silently; only failures are logged to avoid
+	// noisy output during normal operation.
+	w.watchPendingError[clean] = false
+	w.watched[clean] = true
+
+	// If this add succeeds but was previously failing, trigger an async
+	// rebuild so any pre-existing files are picked up even if no create
+	// event is emitted. We only do this when recovering from a pending
+	// error to avoid racing the initial synchronous compile done in Start.
+	if wasPending {
+		go func() {
+			if filepath.Clean(w.cfg.AllowlistDir) == clean {
+				w.rebuild("allowlist")
+				return
+			}
+			if filepath.Clean(w.cfg.DenylistDir) == clean {
+				w.rebuild("denylist")
+			}
+		}()
+	}
+}
+
+// retryMissingWatches retries watch registration for missing directories.
+func (w *dirWatcher) retryMissingWatches() {
+	for _, dir := range w.watchTargets {
+		if !w.watched[dir] {
+			w.tryAddWatch(dir)
+		}
+	}
+}
+
+// handleWatchEvent marks a configured directory watch as lost after rename/remove.
+func (w *dirWatcher) handleWatchEvent(event fsnotify.Event) {
+	if event.Op&(fsnotify.Remove|fsnotify.Rename) == 0 {
+		return
+	}
+
+	// If the removed/renamed path is the watched directory or any of its
+	// descendants, mark the configured target as lost so retry logic can
+	// re-establish the watch when the directory reappears.
+	cleanEvent := filepath.Clean(event.Name)
+	for _, target := range w.watchTargets {
+		if isUnder(cleanEvent, target) {
+			if w.watched[target] {
+				w.watched[target] = false
+				w.watchPendingError[target] = true
+				w.cfg.Logger.Warnf("watcher: lost watch on %s (will retry)", target)
+			} else if !w.watchPendingError[target] {
+				// Mark pending if we weren't already tracking an error.
+				w.watchPendingError[target] = true
+				w.cfg.Logger.Warnf("watcher: detected potential lost watch for %s (will retry)", target)
+			}
 		}
 	}
 }

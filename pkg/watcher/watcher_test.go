@@ -147,6 +147,69 @@ func TestStartMissingDirs(t *testing.T) {
 	}
 }
 
+// TestWatcherRecoversWhenDirectoryAppearsLater verifies that operators still
+// get hot-reload behavior when a configured list directory is created after
+// startup.
+//
+// This test covers watcher retry logic for initially missing fsnotify targets.
+//
+// It asserts that the watcher eventually attaches to the new directory and
+// recompiles a matcher that matches a newly written denylist rule.
+func TestWatcherRecoversWhenDirectoryAppearsLater(t *testing.T) {
+	root := t.TempDir()
+	blDir := filepath.Join(root, "late-deny")
+
+	var mu sync.Mutex
+	var lastBL Snapshot
+
+	stop, err := Start(&Config{
+		DenylistDir: blDir,
+		Debounce:    50 * time.Millisecond,
+		Logger:      &testLogger{},
+		OnUpdate: func(_ Snapshot, bl Snapshot) {
+			mu.Lock()
+			defer mu.Unlock()
+			lastBL = bl
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	t.Cleanup(func() {
+		if stopErr := stop(); stopErr != nil {
+			t.Errorf("stop error: %v", stopErr)
+		}
+	})
+
+	if err := os.MkdirAll(blDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll error: %v", err)
+	}
+
+	rulePath := filepath.Join(blDir, "late.txt")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := os.WriteFile(rulePath, []byte("||late.example.com^\n"), 0o600); err != nil {
+			t.Fatalf("WriteFile error: %v", err)
+		}
+
+		time.Sleep(150 * time.Millisecond)
+
+		mu.Lock()
+		snapshot := lastBL
+		mu.Unlock()
+
+		if snapshot.Matcher == nil {
+			continue
+		}
+		matched, _ := snapshot.Matcher.Match("late.example.com")
+		if matched {
+			return
+		}
+	}
+
+	t.Fatal("expected watcher to recover and compile rules from late-created directory")
+}
+
 // TestHotReload verifies that users see newly added denylist rules take effect
 // without restarting the process.
 //
@@ -536,4 +599,116 @@ func TestAllowlistInvertedKeepsNonExceptionRules(t *testing.T) {
 	if matched {
 		t.Error("expected inverted allowlist NOT to match ignored.example.com (@@-filtered)")
 	}
+}
+
+// TestWatcherRecoversOnDeleteAndRecreate verifies watcher recovers when a
+// watched directory is deleted and later recreated. After recreation, new
+// rules should be compiled and applied.
+func TestWatcherRecoversOnDeleteAndRecreate(t *testing.T) {
+	root := t.TempDir()
+	blDir := filepath.Join(root, "bl-delete-recreate")
+
+	// Create directory with initial rule
+	if err := os.MkdirAll(blDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(blDir, "initial.txt"), []byte("||ads.example.com^\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	var mu sync.Mutex
+	var lastBL Snapshot
+
+	// Use the testLogger to capture watcher logs for later inspection.
+	logger := &testLogger{}
+
+	stop, err := Start(&Config{
+		DenylistDir: blDir,
+		Debounce:    50 * time.Millisecond,
+		Logger:      logger,
+		OnUpdate: func(_ Snapshot, bl Snapshot) {
+			mu.Lock()
+			lastBL = bl
+			mu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	t.Cleanup(func() {
+		if stopErr := stop(); stopErr != nil {
+			t.Errorf("stop error: %v", stopErr)
+		}
+	})
+
+	// Wait for initial compile to succeed
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		snapshot := lastBL
+		mu.Unlock()
+		if snapshot.Matcher != nil {
+			if matched, _ := snapshot.Matcher.Match("ads.example.com"); matched {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	mu.Lock()
+	if lastBL.Matcher == nil {
+		mu.Unlock()
+		t.Fatal("expected initial denylist DFA")
+	}
+	mu.Unlock()
+
+	// Delete the directory to simulate lost watch
+	if err := os.RemoveAll(blDir); err != nil {
+		t.Fatalf("RemoveAll error: %v", err)
+	}
+
+	// Wait a short while for watcher to observe removal and mark retry pending
+	time.Sleep(500 * time.Millisecond)
+	// Log any watcher events observed so far for debugging and record the
+	// current message index so we only consider subsequent logs for the
+	// re-establishment check.
+	logger.mu.Lock()
+	for _, msg := range logger.msgs {
+		t.Logf("watcher-log: %s", msg)
+	}
+	logger.mu.Unlock()
+
+	// Recreate directory and write the new rule file. The watcher will retry
+	// attaching and will perform an immediate rebuild when the watch is
+	// re-established; writing the file now ensures the rule exists for that
+	// rebuild or will be observed by the fsnotify event when the watcher is
+	// active.
+	if err := os.MkdirAll(blDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll error: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(blDir, "new.txt"), []byte("||late.example.com^\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+
+	// Wait for watcher to recover and compile the new rule
+	deadline = time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		snapshot := lastBL
+		mu.Unlock()
+		if snapshot.Matcher != nil {
+			if matched, _ := snapshot.Matcher.Match("late.example.com"); matched {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Dump any remaining watcher logs to help debugging the failure.
+	logger.mu.Lock()
+	for _, msg := range logger.msgs {
+		t.Logf("watcher-log: %s", msg)
+	}
+	logger.mu.Unlock()
+	t.Fatal("expected watcher to recover and compile new rules after delete+recreate")
 }
