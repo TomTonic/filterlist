@@ -70,8 +70,8 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 
 	b.Logf("compile: hybrid=%s pure=%s", compileHybrid, compilePure)
 
-	timesHybrid := make([]float64, 0, 1_000_000)
-	timesPure := make([]float64, 0, 1_000_000)
+	timesHybrid := make([]float64, 0, 100_000)
+	timesPure := make([]float64, 0, 100_000)
 	oldGCPercent := debug.SetGCPercent(-1) // Disable GC during benchmarking to avoid noise; we'll trigger manually between runs.
 	defer debug.SetGCPercent(oldGCPercent)
 
@@ -96,6 +96,7 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 		runtime.GC()
 		runtime.GC()
 		runtime.GC()
+		debug.SetGCPercent(-1)
 
 		// Benchmark hybrid matcher over the deterministic sequence.
 		b.Run(fmt.Sprintf("seq=%d/hybrid", seqLen), func(b *testing.B) {
@@ -117,9 +118,11 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 			}
 		})
 
+		debug.SetGCPercent(oldGCPercent)
 		runtime.GC()
 		runtime.GC()
 		runtime.GC()
+		debug.SetGCPercent(-1)
 
 		// Benchmark matcher in full-DFA mode over the deterministic sequence.
 		b.Run(fmt.Sprintf("seq=%d/pure", seqLen), func(b *testing.B) {
@@ -141,6 +144,7 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 			}
 		})
 
+		debug.SetGCPercent(oldGCPercent)
 		runtime.GC()
 
 		hybridMedian := rtcompare.QuickMedian(timesHybrid)
@@ -166,6 +170,16 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 			hybridMedian,
 			pureMedian,
 		)
+
+		// Compare distributions using bootstrap (precision controls bootstrap repetitions)
+		speedups := []float64{0.05} // assume 5% speedup
+		results, err := rtcompare.CompareSamplesDefault(timesPure, timesHybrid, speedups)
+		if err != nil {
+			panic(err)
+		}
+		for _, r := range results {
+			fmt.Printf("Speedup ≥ %.0f%% → Confidence %.2f%%\n", r.RelativeSpeedupSampleAvsSampleB*100, r.Confidence*100)
+		}
 	}
 }
 
