@@ -9,7 +9,7 @@
 //  2. NFA combination — individual NFAs merge via epsilon fan-out (nfa.go)
 //  3. Subset (powerset) construction — NFA → deterministic DFA (subset.go)
 //  4. Hopcroft minimization — merge equivalent DFA states (minimize.go)
-//  5. Pointer-based DFA — contiguous-slice DFA with direct pointers (dfa.go)
+//  5. Runtime DFA — compact transition tables plus exported state graph (dfa.go)
 //
 // # Pattern Language
 //
@@ -31,12 +31,12 @@
 //
 // # Performance Design
 //
-// Every design choice in the exported [DFA] favors O(n) match-time performance:
-//   - Transitions are [AlphabetSize]*DFAState fixed arrays (no map lookups)
-//   - All [DFAState] values live in one contiguous []DFAState slice
-//   - Direct pointer chasing replaces index indirection
+// Every design choice in the runtime [DFA] favors O(n) match-time performance:
+//   - Runtime transitions live in one compact flat []uint32 table
+//   - Accept flags and rule IDs are split into dense side arrays for locality
+//   - [DFA.Match] and [DFA.MatchDomain] use byte-indexed hot loops
+//   - Exported [DFAState] values are still materialized for tests and diagnostics
 //   - NFA states use bit-packed flags to improve cache utilization
-//   - [DFA.MatchDomain] uses a byte-indexed lookup table for the hot loop
 //
 // # File Organization
 //

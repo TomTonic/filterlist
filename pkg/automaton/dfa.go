@@ -45,16 +45,30 @@ type DFAState struct {
 	RuleIDs []uint32 // which filter rules led to this accept state
 }
 
+type ruleSpan struct {
+	start int
+	len   int
+}
+
 // DFA is a compiled deterministic finite automaton for domain name matching.
 //
-// States reside in a single contiguous slice for cache locality, and
-// transitions are direct pointers between elements of that slice — no map
-// lookups or index indirection at match time.
+// Matching uses a compact runtime layout: transitions are stored in a flat
+// []uint32 array, accepts in a dense []bool, and rule IDs in one packed data
+// block referenced by per-state spans. This keeps the hot path smaller and
+// more cache-friendly than traversing the exported pointer-linked states.
+//
+// The pointer-linked state graph is still materialized in [states] and [start]
+// for tests and diagnostics inside the package.
 //
 // Create a DFA with [Compile]; query it with [DFA.Match].
 type DFA struct {
-	start  *DFAState
-	states []DFAState
+	start      *DFAState
+	states     []DFAState
+	startIndex int
+	trans      []uint32
+	accept     []bool
+	ruleSpans  []ruleSpan
+	ruleIDData []uint32
 }
 
 // Match checks whether input is accepted by the compiled DFA and returns the
@@ -67,22 +81,24 @@ type DFA struct {
 //
 // A nil or empty DFA always returns (false, nil).
 func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
-	if d == nil || d.start == nil {
+	if d == nil || len(d.accept) == 0 {
 		return false, nil
 	}
-	s := d.start
-	for _, r := range input {
-		idx := runeToIndex(r)
+
+	state := d.startIndex
+	for i := 0; i < len(input); i++ {
+		idx := byteIndex[input[i]]
 		if idx == noAlphabetIndex {
 			return false, nil
 		}
-		s = s.Trans[idx]
-		if s == nil {
+		next := d.trans[state*AlphabetSize+int(idx)]
+		if next == noTransitionState {
 			return false, nil
 		}
+		state = int(next) //nolint:gosec // state IDs originate from compiler-built DFA transitions
 	}
-	if s.Accept {
-		return true, s.RuleIDs
+	if d.accept[state] {
+		return true, d.ruleIDsForState(state)
 	}
 	return false, nil
 }
@@ -111,56 +127,71 @@ func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
 // points that compile reversed patterns via [Compile]. For raw exact-match
 // semantics on non-reversed patterns, use [DFA.Match] instead.
 func (d *DFA) MatchDomain(input string) (matched bool, ruleIDs []uint32) {
-	if d == nil || d.start == nil {
+	if d == nil || len(d.accept) == 0 {
 		return false, nil
 	}
 
-	s := d.start
+	state := d.startIndex
 	n := len(input)
 
 	if n == 0 {
-		if s.Accept {
-			return true, s.RuleIDs
+		if d.accept[state] {
+			return true, d.ruleIDsForState(state)
 		}
 		return false, nil
 	}
 
-	// firstIDs tracks the first boundary match. As long as only one boundary
-	// accepts, we return the DFA state's own RuleIDs slice directly —
-	// identical to what Match does — avoiding any allocation.
-	var firstIDs []uint32
+	firstState := -1
 
 	for i := n - 1; i >= 0; i-- {
 		idx := byteIndex[input[i]]
 		if idx == noAlphabetIndex {
 			break
 		}
-		next := s.Trans[idx]
-		if next == nil {
+		next := d.trans[state*AlphabetSize+int(idx)]
+		if next == noTransitionState {
 			break
 		}
-		s = next
+		state = int(next) //nolint:gosec // state IDs originate from compiler-built DFA transitions
 
-		if s.Accept && (i == 0 || input[i-1] == '.') {
-			switch {
-			case !matched:
-				matched = true
-				firstIDs = s.RuleIDs
-			case ruleIDs == nil:
-				// Second boundary hit — allocate and merge both sets.
-				ruleIDs = make([]uint32, 0, len(firstIDs)+len(s.RuleIDs))
-				ruleIDs = append(ruleIDs, firstIDs...)
-				ruleIDs = appendUniqueIDs(ruleIDs, s.RuleIDs)
-			default:
-				ruleIDs = appendUniqueIDs(ruleIDs, s.RuleIDs)
-			}
+		if i > 0 && input[i-1] != '.' {
+			continue
+		}
+		if !d.accept[state] {
+			continue
+		}
+
+		ids := d.ruleIDsForState(state)
+		switch {
+		case !matched:
+			matched = true
+			firstState = state
+		case ruleIDs == nil:
+			firstIDs := d.ruleIDsForState(firstState)
+			// Second boundary hit — allocate and merge both sets.
+			ruleIDs = make([]uint32, 0, len(firstIDs)+len(ids))
+			ruleIDs = append(ruleIDs, firstIDs...)
+			ruleIDs = appendUniqueIDs(ruleIDs, ids)
+		default:
+			ruleIDs = appendUniqueIDs(ruleIDs, ids)
 		}
 	}
 
 	if ruleIDs != nil {
 		return matched, ruleIDs
 	}
-	return matched, firstIDs
+	if firstState >= 0 {
+		return true, d.ruleIDsForState(firstState)
+	}
+	return false, nil
+}
+
+func (d *DFA) ruleIDsForState(state int) []uint32 {
+	span := d.ruleSpans[state]
+	if span.len == 0 {
+		return nil
+	}
+	return d.ruleIDData[span.start : span.start+span.len]
 }
 
 // appendUniqueIDs appends rule IDs from src to dst, skipping duplicates.
@@ -190,7 +221,7 @@ func (d *DFA) StateCount() int {
 	if d == nil {
 		return 0
 	}
-	return len(d.states)
+	return len(d.accept)
 }
 
 // toDFA converts an intermediate DFA (used during compilation) to the
@@ -202,10 +233,36 @@ func (d *DFA) StateCount() int {
 // where each goroutine processes a disjoint chunk of the state slice.
 func (md *intermediateDFA) toDFA() *DFA {
 	n := md.stateCount()
-	d := &DFA{states: make([]DFAState, n)}
+	d := &DFA{
+		startIndex: md.start,
+		trans:      make([]uint32, len(md.trans)),
+		accept:     make([]bool, len(md.accept)),
+		ruleSpans:  make([]ruleSpan, n),
+		states:     make([]DFAState, n),
+	}
 
 	if n == 0 {
 		return d
+	}
+
+	copy(d.trans, md.trans)
+	copy(d.accept, md.accept)
+
+	totalRuleIDs := 0
+	for _, ids := range md.ruleIDs {
+		totalRuleIDs += len(ids)
+	}
+	if totalRuleIDs > 0 {
+		d.ruleIDData = make([]uint32, 0, totalRuleIDs)
+	}
+	for i := range n {
+		ids := md.ruleIDs[i]
+		if len(ids) == 0 {
+			continue
+		}
+		start := len(d.ruleIDData)
+		d.ruleIDData = append(d.ruleIDData, ids...)
+		d.ruleSpans[i] = ruleSpan{start: start, len: len(ids)}
 	}
 
 	numWorkers := runtime.GOMAXPROCS(0)
@@ -224,9 +281,9 @@ func (md *intermediateDFA) toDFA() *DFA {
 				defer wg.Done()
 				for i := lo; i < hi; i++ {
 					ds := &d.states[i]
-					ds.Accept = md.accept[i]
-					ds.RuleIDs = md.ruleIDs[i]
-					trans := md.stateTrans(i)
+					ds.Accept = d.accept[i]
+					ds.RuleIDs = d.ruleIDsForState(i)
+					trans := d.trans[i*AlphabetSize : (i+1)*AlphabetSize]
 					for idx, target := range trans {
 						if target != noTransitionState {
 							ds.Trans[idx] = &d.states[target]
@@ -238,11 +295,11 @@ func (md *intermediateDFA) toDFA() *DFA {
 		wg.Wait()
 	} else {
 		for i := range n {
-			d.states[i].Accept = md.accept[i]
-			d.states[i].RuleIDs = md.ruleIDs[i]
+			d.states[i].Accept = d.accept[i]
+			d.states[i].RuleIDs = d.ruleIDsForState(i)
 		}
 		for i := range n {
-			trans := md.stateTrans(i)
+			trans := d.trans[i*AlphabetSize : (i+1)*AlphabetSize]
 			for idx, target := range trans {
 				if target != noTransitionState {
 					d.states[i].Trans[idx] = &d.states[target]
@@ -251,6 +308,6 @@ func (md *intermediateDFA) toDFA() *DFA {
 		}
 	}
 
-	d.start = &d.states[md.start]
+	d.start = &d.states[d.startIndex]
 	return d
 }

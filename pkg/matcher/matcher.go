@@ -196,22 +196,30 @@ func (m *Matcher) Match(input string) (matched bool, ruleIDs []uint32) {
 	}
 
 	input = strings.ToLower(input)
+	var suffixmapIDs []uint32
+	var dfaIDs []uint32
 
 	if m.literals != nil {
 		if hit, ids := m.literals.Match(input); hit {
 			matched = true
-			ruleIDs = append(ruleIDs, ids...)
+			suffixmapIDs = ids
 		}
 	}
 
 	if m.dfa != nil {
 		if hit, ids := m.dfa.MatchDomain(input); hit {
 			matched = true
-			ruleIDs = append(ruleIDs, ids...)
+			dfaIDs = ids
 		}
 	}
 
-	return matched, ruleIDs
+	if matched {
+		merged := make([]uint32, 0, len(suffixmapIDs)+len(dfaIDs))
+		merged = append(merged, suffixmapIDs...)
+		merged = append(merged, dfaIDs...)
+		return true, merged
+	}
+	return false, nil
 }
 
 // StateCount returns the number of DFA states held by the matcher.
