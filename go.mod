@@ -6,7 +6,7 @@ require (
 	github.com/TomTonic/rtcompare v0.5.1
 	github.com/coredns/caddy v1.1.4
 	github.com/coredns/coredns v1.14.3
-	github.com/fsnotify/fsnotify v1.10.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/miekg/dns v1.1.72
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
