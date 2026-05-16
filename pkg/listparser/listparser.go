@@ -476,32 +476,14 @@ func validatePatternLabel(label string) error {
 	if len(label) > maxDNSLabelLength {
 		return fmt.Errorf("label %q exceeds %d characters", truncate(label), maxDNSLabelLength)
 	}
-
-	if strings.Contains(label, "*") {
-		stripped := strings.ReplaceAll(label, "*", "")
-		if stripped == "" {
-			return nil
-		}
-		if stripped[0] == '-' || stripped[len(stripped)-1] == '-' {
-			return fmt.Errorf("label %q starts or ends with hyphen", truncate(label))
-		}
-		for _, r := range stripped {
-			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-				return fmt.Errorf("label %q contains invalid character %q", truncate(label), r)
-			}
-		}
-		return nil
-	}
-
-	if label[0] == '-' || label[len(label)-1] == '-' {
-		return fmt.Errorf("label %q starts or ends with hyphen", truncate(label))
-	}
 	for _, r := range label {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '*' {
 			return fmt.Errorf("label %q contains invalid character %q", truncate(label), r)
 		}
 	}
-
+	if label[0] == '-' || label[len(label)-1] == '-' {
+		return fmt.Errorf("label %q starts or ends with hyphen", truncate(label))
+	}
 	return nil
 }
 
