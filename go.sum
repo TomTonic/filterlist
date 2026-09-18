@@ -1,7 +1,7 @@
 github.com/TomTonic/Set3 v0.4.2 h1:SHtl2H4ujWgf7kAJLcuDHLB87GtEVB0YJDd7bDttifQ=
 github.com/TomTonic/Set3 v0.4.2/go.mod h1:jHb04kRnQ4Pv63d/7Ws95s1S5XYycOmtLfnS5i+RNoc=
-github.com/TomTonic/rtcompare v0.5.2 h1:sseXqakVjNSzoqCnGzqX33iqM23jLx/CfW8YwPam9lQ=
-github.com/TomTonic/rtcompare v0.5.2/go.mod h1:oW8Dc53R1UzwWkSDHOjrednjFxHArJFTVkV5qCz1Tv0=
+github.com/TomTonic/rtcompare v0.6.0 h1:SqTZ3rIpV65gYmWeTWXjQ6+nBTahglnwDj1p3nV2OD4=
+github.com/TomTonic/rtcompare v0.6.0/go.mod h1:aUrfjhgQaysYUb1weSVaC1TMxXL1IDA+7/K4Waip2Is=
 github.com/apparentlymart/go-cidr v1.1.1 h1:oEEk8CE0HP0YpHxsegk/TaOtR2FLHdWv4p3eM4ceUwg=
 github.com/apparentlymart/go-cidr v1.1.1/go.mod h1:EBcsNrHc3zQeuaeCeCtQruQm+n9/YjEn/vI25Lg7Gwc=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

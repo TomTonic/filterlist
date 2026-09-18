@@ -106,7 +106,7 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				t1 := rtcompare.SampleTime()
 				for range seqLen {
-					idx := dprng.UInt32N(domainCount)
+					idx := dprng.Uint32N(domainCount)
 					d := domains[int(idx)]
 					if hit, _ := hybrid.Match(d); hit {
 						hybridHits++
@@ -132,7 +132,7 @@ func BenchmarkSequenceMapVsDFA(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				t1 := rtcompare.SampleTime()
 				for range seqLen {
-					idx := dprng.UInt32N(domainCount)
+					idx := dprng.Uint32N(domainCount)
 					d := domains[int(idx)]
 					if hit, _ := pure.Match(d); hit {
 						pureHits++
