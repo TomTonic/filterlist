@@ -3,7 +3,7 @@ module github.com/TomTonic/filterlist
 go 1.26.8
 
 require (
-	github.com/TomTonic/rtcompare v0.6.0
+	github.com/TomTonic/rtcompare v0.7.0
 	github.com/coredns/caddy v1.1.4
 	github.com/coredns/coredns v1.14.7
 	github.com/fsnotify/fsnotify v1.10.1
