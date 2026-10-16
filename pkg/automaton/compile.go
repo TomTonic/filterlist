@@ -59,7 +59,7 @@ type Pattern struct {
 	RuleID uint32 // caller-assigned identifier for match attribution
 }
 
-// Compile transforms a set of filter patterns into a minimized, pointer-based
+// Compile transforms a set of filter patterns into a minimized, table-based
 // [DFA] ready for repeated [DFA.Match] calls.
 //
 // Each [Pattern] carries a lowercase expression string and a caller-assigned
@@ -70,10 +70,11 @@ type Pattern struct {
 //  2. Combine all NFAs via epsilon fan-out ([combineNFAs])
 //  3. Subset (powerset) construction → deterministic DFA ([subsetConstruction])
 //  4. Optionally minimize via Hopcroft's algorithm ([hopcroftMinimize])
-//  5. Convert to the exported pointer-based [DFA]
+//  5. Convert to the exported table-based [DFA]
 //
 // On failure Compile returns an error describing invalid patterns, timeout
-// exhaustion, or MaxStates violations. An empty pattern slice produces a
+// exhaustion, MaxStates violations, or a DFA too large for the runtime
+// layout (more than about 56 million states). An empty pattern slice produces a
 // valid but empty DFA that matches nothing.
 func Compile(patterns []Pattern, opts CompileOptions) (*DFA, error) {
 	logf := nopLogf
@@ -137,7 +138,10 @@ func Compile(patterns []Pattern, opts CompileOptions) (*DFA, error) {
 		logf("compiling automaton: skipping Hopcroft minimization (84%% done)")
 	}
 
-	// Phase 5: Convert to pointer-based DFA.
+	// Phase 5: Convert to the runtime DFA.
+	if md.stateCount() > maxRuntimeStates {
+		return nil, fmt.Errorf("automaton: %d DFA states exceed the runtime limit of %d", md.stateCount(), maxRuntimeStates)
+	}
 	logf("compiling automaton: converting to runtime DFA...")
 	dfa := md.toDFA()
 	logf("compiling automaton: compiled %d patterns in %v (100%% done), final DFA has %d states", len(patterns), time.Since(started), dfa.StateCount())

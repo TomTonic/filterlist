@@ -32,6 +32,9 @@
 // # Performance Design
 //
 // Every design choice in the runtime [DFA] favors O(n) match-time performance:
+//   - Transition entries hold the target's row offset in the flat table
+//     (target × [AlphabetSize]), so each lookup step needs only an add after
+//     the load it depends on, not a multiply-add
 //   - Transition entries embed the target's accept flag in bit 31, avoiding
 //     a separate accept-array load at domain-boundary positions
 //   - [byteIndex] maps both upper- and lowercase ASCII letters to the same
@@ -40,6 +43,11 @@
 //   - [DFA.Match] and [DFA.MatchDomain] use byte-indexed hot loops
 //   - NFA states use bit-packed flags to improve cache utilization
 //
+// The runtime layout choices are measured, not assumed: TestLayoutDecisions
+// compares the current layout with the ones it replaced, using rtcompare's
+// multi-process protocol (run it with FILTERLIST_PERF=1); see [DFA] for the
+// results.
+//
 // # File Organization
 //
 //   - alphabet.go — DNS character ↔ transition-index mapping
@@ -47,7 +55,6 @@
 //   - subset.go   — powerset (subset) construction
 //   - minimize.go — Hopcroft partition-refinement minimization
 //   - dfa.go      — exported [DFA] type, [DFA.Match] and [DFA.MatchDomain]
-//   - dot.go      — Graphviz DOT export ([DFA.DumpDot])
 //   - compile.go  — pipeline orchestration ([Compile])
 //
 // # Example
