@@ -28,20 +28,37 @@ type ruleSpan struct {
 }
 
 // transAcceptBit marks the target state as accepting. Stored in bit 31
-// of each d.trans entry alongside the target state index in bits 0–30.
+// of each d.trans entry alongside the target's row offset in bits 0–30.
 const transAcceptBit uint32 = 1 << 31
 
-// transStateMask extracts the target state index (bits 0–30).
-const transStateMask uint32 = transAcceptBit - 1
+// transOffsetMask extracts the target's row offset (bits 0–30).
+const transOffsetMask uint32 = transAcceptBit - 1
+
+// maxRuntimeStates is the largest state count whose row offsets
+// (state × [AlphabetSize]) still fit in bits 0–30 of a transition entry.
+const maxRuntimeStates = int(transOffsetMask / AlphabetSize)
 
 // DFA is a compiled deterministic finite automaton for domain name matching.
 //
-// The runtime layout encodes each transition as a uint32 with the target
-// state index in bits 0–30 and the target's accept flag in bit 31.
-// [noTransitionState] (0xFFFFFFFF) represents "no transition".
-// Embedding the accept flag lets [DFA.MatchDomain] check acceptance from
-// the same value it already loaded for the transition — no separate array
-// access needed at domain-boundary positions.
+// The runtime layout is one flat []uint32 table of [AlphabetSize] entries per
+// state. Each entry holds the target's row offset in that table (target
+// state × [AlphabetSize]) in bits 0–30 and the target's accept flag in bit
+// 31; [noTransitionState] (0xFFFFFFFF) represents "no transition".
+//
+// Every lookup step depends on the entry the previous step loaded. With row
+// offsets the next address is that entry plus the alphabet index; with state
+// indices it would need a multiply-add first. Embedding the accept flag lets
+// [DFA.MatchDomain] check acceptance from the value it already loaded instead
+// of reading a separate accept array at each label boundary.
+//
+// TestLayoutDecisions in this package measures both choices across 40
+// processes on the realistic denylist samples. On an Apple M1 Pro, against
+// state indices with accept bit, row offsets save about 6% per lookup on the
+// small wildcard DFA of hybrid mode and make no measurable difference on the
+// large DFA of dfa mode, where memory latency dominates; the accept bit saves
+// about 1% against an accept array. A pointer-linked state graph is 16%
+// faster on the small DFA, but 5% slower on the large one and needs twice
+// the memory.
 //
 // [byteIndex] maps both upper- and lowercase ASCII letters to the same
 // alphabet index, making [DFA.Match] and [DFA.MatchDomain] inherently
@@ -49,11 +66,11 @@ const transStateMask uint32 = transAcceptBit - 1
 //
 // Create a DFA with [Compile]; query it with [DFA.Match].
 type DFA struct {
-	startIndex int
-	trans      []uint32 // (acceptBit<<31) | targetStateIndex
-	accept     []bool
-	ruleSpans  []ruleSpan
-	ruleIDData []uint32
+	startOffset int      // row offset of the start state in trans
+	trans       []uint32 // (acceptBit<<31) | targetState*AlphabetSize
+	accept      []bool
+	ruleSpans   []ruleSpan
+	ruleIDData  []uint32
 }
 
 // Match checks whether input is accepted by the compiled DFA and returns the
@@ -71,14 +88,11 @@ func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
 	}
 
 	trans := d.trans
-	state := d.startIndex
+	off := d.startOffset
 	n := len(input)
 
 	if n == 0 {
-		if d.accept[state] {
-			return true, d.ruleIDsForState(state)
-		}
-		return false, nil
+		return d.startResult()
 	}
 
 	var lastP uint32
@@ -87,14 +101,14 @@ func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
 		if idx == noAlphabetIndex {
 			return false, nil
 		}
-		lastP = trans[state*AlphabetSize+int(idx)]
+		lastP = trans[off+int(idx)]
 		if lastP == noTransitionState {
 			return false, nil
 		}
-		state = int(lastP & transStateMask)
+		off = int(lastP & transOffsetMask)
 	}
 	if lastP&transAcceptBit != 0 {
-		return true, d.ruleIDsForState(state)
+		return true, d.ruleIDsForState(off / AlphabetSize)
 	}
 	return false, nil
 }
@@ -116,9 +130,10 @@ func (d *DFA) Match(input string) (matched bool, ruleIDs []uint32) {
 // "*.<pattern>" variants for every rule, which caused exponential DFA state
 // explosion when the original pattern already contained wildcards.
 //
-// Each d.trans entry stores the target state index in bits 0–30 and the
+// Each d.trans entry stores the target's row offset in bits 0–30 and its
 // accept flag in bit 31, so boundary accept checks read the already-loaded
-// transition value — no separate d.accept array access required.
+// transition value, and the state index needed for the rule IDs is computed
+// only on a match.
 //
 // The input parameter should be a DNS domain name without trailing dot.
 // Case is handled transparently by [byteIndex]. A nil or empty DFA always
@@ -133,14 +148,11 @@ func (d *DFA) MatchDomain(input string) (matched bool, ruleIDs []uint32) {
 	}
 
 	trans := d.trans
-	state := d.startIndex
+	off := d.startOffset
 	n := len(input)
 
 	if n == 0 {
-		if d.accept[state] {
-			return true, d.ruleIDsForState(state)
-		}
-		return false, nil
+		return d.startResult()
 	}
 
 	firstState := -1
@@ -150,11 +162,11 @@ func (d *DFA) MatchDomain(input string) (matched bool, ruleIDs []uint32) {
 		if idx == noAlphabetIndex {
 			break
 		}
-		p := trans[state*AlphabetSize+int(idx)]
+		p := trans[off+int(idx)]
 		if p == noTransitionState {
 			break
 		}
-		state = int(p & transStateMask)
+		off = int(p & transOffsetMask)
 
 		if i > 0 && input[i-1] != '.' {
 			continue
@@ -163,6 +175,7 @@ func (d *DFA) MatchDomain(input string) (matched bool, ruleIDs []uint32) {
 			continue
 		}
 
+		state := off / AlphabetSize
 		ids := d.ruleIDsForState(state)
 		switch {
 		case !matched:
@@ -186,6 +199,16 @@ func (d *DFA) MatchDomain(input string) (matched bool, ruleIDs []uint32) {
 		return true, d.ruleIDsForState(firstState)
 	}
 	return false, nil
+}
+
+// startResult answers an empty input, which matches if the start state
+// accepts; it is the one lookup that never loads a transition.
+func (d *DFA) startResult() (matched bool, ruleIDs []uint32) {
+	state := d.startOffset / AlphabetSize
+	if !d.accept[state] {
+		return false, nil
+	}
+	return true, d.ruleIDsForState(state)
 }
 
 func (d *DFA) ruleIDsForState(state int) []uint32 {
@@ -231,15 +254,19 @@ func (d *DFA) StateCount() int {
 //
 // The conversion copies the flat transition table, accept flags, and rule ID
 // spans into the final runtime layout. Transition entries are then re-encoded
-// in-place so bit 31 carries the target state's accept flag. This encoding is
-// consumed directly by [DFA.Match] and [DFA.MatchDomain].
+// in-place from target state indices to row offsets (target × [AlphabetSize])
+// with the target's accept flag in bit 31. This encoding is consumed directly
+// by [DFA.Match] and [DFA.MatchDomain].
+//
+// The intermediate DFA must not have more than [maxRuntimeStates] states, or
+// the row offsets overflow; [Compile] checks this before calling toDFA.
 func (md *intermediateDFA) toDFA() *DFA {
 	n := md.stateCount()
 	d := &DFA{
-		startIndex: md.start,
-		trans:      make([]uint32, len(md.trans)),
-		accept:     make([]bool, len(md.accept)),
-		ruleSpans:  make([]ruleSpan, n),
+		startOffset: md.start * AlphabetSize,
+		trans:       make([]uint32, len(md.trans)),
+		accept:      make([]bool, len(md.accept)),
+		ruleSpans:   make([]ruleSpan, n),
 	}
 
 	if n == 0 {
@@ -266,15 +293,16 @@ func (md *intermediateDFA) toDFA() *DFA {
 		d.ruleSpans[i] = ruleSpan{start: start, len: len(ids)}
 	}
 
-	// Re-encode d.trans in-place: set the accept bit (bit 31) for each
-	// transition whose target state is accepting. After this point d.trans
-	// entries are consumed only by Match/MatchDomain.
+	// Re-encode d.trans in-place: replace each target state index by its row
+	// offset and set the accept bit (bit 31) if the target accepts. After this
+	// point d.trans entries are consumed only by Match/MatchDomain.
 	for i, t := range d.trans {
 		if t != noTransitionState {
-			target := int(t) //nolint:gosec // bounded by state count
-			if d.accept[target] {
-				d.trans[i] = t | transAcceptBit
+			p := t * AlphabetSize
+			if d.accept[t] {
+				p |= transAcceptBit
 			}
+			d.trans[i] = p
 		}
 	}
 

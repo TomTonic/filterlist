@@ -217,7 +217,7 @@ Those tests assert that:
 - `disable_RFC_checks` controls the RFC 1035 + IDNA Lookup-profile query-name precheck. When `off` (the default), queries whose names violate LDH syntax, label-length limits, or IDNA encoding are blocked immediately after the `deny_non_allowlisted` check and before the denylist matcher. The implementation uses a tight scan with per-label and total-length counters on the ASCII fast path and only calls IDNA conversion when it sees an ACE-prefix label (`xn--`). Set it to `on` to skip this check entirely for environments that host non-standard names.
 - `strict_rfc_names` tightens the RFC precheck rather than disabling it. When `off` (the default), the precheck accepts RFC 8553 underscored labels — a single leading underscore per label, as used by DNS-SD service discovery (RFC 6763, e.g. `lb._dns-sd._udp.example.com`), DKIM (`_domainkey`), DMARC (`_dmarc`), and SRV records (`_ldap._tcp`). Set it to `on` to enforce strict RFC 1035 LDH syntax that rejects any underscore. **Caution:** `strict_rfc_names on` is a global switch — it blocks all underscored names across every zone, which prevents DNS-SD device discovery, DMARC and DKIM lookups, and SRV-based service resolution. If you only want to block underscored names for a specific domain or network, add explicit denylist rules (`||_dns-sd._udp.home.arpa^`) instead of using this switch. It has no effect when `disable_RFC_checks` is `on`, since the whole precheck is then skipped.
 - `matcher_mode hybrid` is the default and keeps startup and reload compile times much lower by storing literal rules in the suffix map and compiling only wildcard rules into the DFA.
-- `matcher_mode dfa` compiles every rule into one DFA (also the literal ones). In the `BenchmarkSequenceMapVsDFA` benchmark with the bundled realistic denylist samples and Cloudflare top-domain input, that is allocation free and reduced lookup cost about 5%, but increased compile time from about `0.5 s` to about `5 s`. Use it when request-path latency matters more than reload speed.
+- `matcher_mode dfa` compiles every rule into one DFA (also the literal ones). In the `TestSequenceMapVsDFA` comparison with the bundled realistic denylist samples and Cloudflare top-domain input, on an Apple M1 Pro, that is allocation free and reduced lookup cost by about a fifth (two runs of 40 processes each gave 18% and 26%; the processes scatter widely, so treat it as a range rather than a precise figure), but increased compile time from about `0.5 s` to about `5 s`. Use it when request-path latency matters more than reload speed.
 
 ## Query Flow
 
@@ -311,6 +311,11 @@ go tool cover -html=coverage.out -o coverage.html
 
 # Run benchmarks
 go test -bench=. -benchmem ./pkg/automaton ./pkg/listparser
+
+# Run the multi-process runtime comparisons (several minutes each; they use
+# rtcompare's multiproc package and only run with FILTERLIST_PERF set)
+FILTERLIST_PERF=1 go test -count=1 -timeout 0 -run '^TestSequenceMapVsDFA$' -v .
+FILTERLIST_PERF=1 go test -count=1 -timeout 0 -run '^TestLayoutDecisions$' -v ./pkg/automaton
 ```
 
 ## Architecture
