@@ -1,9 +1,9 @@
 package filterlist_test
 
 import (
-	"path/filepath"
 	"testing"
 
+	"github.com/TomTonic/filterlist/internal/benchfixture"
 	"github.com/TomTonic/filterlist/pkg/listparser"
 	"github.com/TomTonic/filterlist/pkg/matcher"
 )
@@ -13,33 +13,15 @@ var benchmarkMatcher *matcher.Matcher
 const realisticBenchmarkMaxStates = 0
 
 // loadRealisticDenylistRules combines the two sample filter lists from
-// testdata/filterlists into one denylist-style rule set.
+// testdata/filterlists into one denylist-style rule set; see
+// benchfixture.DenylistRules, which the runtime comparisons share.
 func loadRealisticDenylistRules(tb testing.TB) []listparser.Rule {
 	tb.Helper()
-
-	logger := &testLogger{}
-	paths := []string{
-		filepath.Join(testdataDir(), "Adguard_filter_example.txt"),
-		filepath.Join(testdataDir(), "easylistgermany_example.txt"),
+	rules, err := benchfixture.DenylistRules()
+	if err != nil {
+		tb.Fatalf("load realistic denylist rules: %v", err)
 	}
-
-	var rules []listparser.Rule
-	for _, path := range paths {
-		parsed, err := listparser.ParseFile(path, logger)
-		if err != nil {
-			tb.Fatalf("ParseFile(%s) error: %v", path, err)
-		}
-		rules = append(rules, parsed...)
-	}
-
-	filtered := make([]listparser.Rule, 0, len(rules))
-	for _, rule := range rules {
-		if !rule.IsAllow {
-			filtered = append(filtered, rule)
-		}
-	}
-
-	return filtered
+	return rules
 }
 
 // BenchmarkCompileRealisticDenylist measures DFA compilation for the two large
