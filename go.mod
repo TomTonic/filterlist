@@ -5,7 +5,7 @@ go 1.26.9
 require (
 	github.com/TomTonic/rtcompare v0.8.2
 	github.com/coredns/caddy v1.1.4
-	github.com/coredns/coredns v1.14.7
+	github.com/coredns/coredns v1.15.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/miekg/dns v1.1.73
 	github.com/prometheus/client_golang v1.25.0
@@ -26,8 +26,7 @@ require (
 	github.com/prometheus/common v0.72.1 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.63.0 // indirect
-	go.uber.org/mock v0.6.0 // indirect
+	github.com/quic-go/quic-go v0.64.1 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
