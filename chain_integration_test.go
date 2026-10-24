@@ -62,11 +62,22 @@ func (chainStub) ServeDNS(_ context.Context, w dns.ResponseWriter, r *dns.Msg) (
 	return dns.RcodeSuccess, nil
 }
 
+// chainOrders lists the plugin orders the chain tests run against: the
+// recommended "filterlist before cache" and the discouraged reverse.
+var chainOrders = []struct {
+	name       string
+	cacheFirst bool
+}{
+	{"filterlist before cache", false},
+	{"cache before filterlist", true},
+}
+
 // startChainServer boots a real CoreDNS server on a random loopback UDP port
-// with the plugin order "cache, filterlist, stub upstream" and returns its
-// address. The denylist contains blocked.example and the server is stopped via
-// t.Cleanup.
-func startChainServer(t *testing.T) string {
+// and returns its address and the denylist directory. The plugin order is
+// "filterlist, cache, stub upstream", or "cache, filterlist, stub upstream"
+// when cacheFirst is set. The denylist contains blocked.example, is watched
+// with a short debounce, and the server is stopped via t.Cleanup.
+func startChainServer(t *testing.T, cacheFirst bool) (addr, denyDir string) {
 	t.Helper()
 	chainServerMu.Lock()
 	t.Cleanup(chainServerMu.Unlock)
@@ -82,14 +93,17 @@ func startChainServer(t *testing.T) string {
 		dnsserver.Directives = oldDirectives
 		caddy.Quiet, dnsserver.Quiet = oldCaddyQuiet, oldDNSQuiet
 	})
-	dnsserver.Directives = []string{"bind", "cache", "filterlist", chainStubName}
+	dnsserver.Directives = []string{"bind", "filterlist", "cache", chainStubName}
+	if cacheFirst {
+		dnsserver.Directives = []string{"bind", "cache", "filterlist", chainStubName}
+	}
 	if err := dnsserver.Register(); err != nil {
 		t.Fatalf("register dns server type: %v", err)
 	}
 	caddy.Quiet, dnsserver.Quiet = true, true
 	chainStubCalls.Store(0)
 
-	corefile := fmt.Sprintf(".:0 {\n bind 127.0.0.1\n cache\n filterlist {\n  denylist_dir %s\n  ttl 60\n }\n %s\n}\n",
+	corefile := fmt.Sprintf(".:0 {\n bind 127.0.0.1\n cache\n filterlist {\n  denylist_dir %s\n  ttl 60\n  debounce 50ms\n }\n %s\n}\n",
 		dir, chainStubName)
 	instance, err := caddy.Start(caddy.CaddyfileInput{
 		Filepath:       "Corefile",
@@ -107,7 +121,7 @@ func startChainServer(t *testing.T) string {
 			t.Errorf("stop CoreDNS: %v", err)
 		}
 	})
-	return instance.Servers()[0].LocalAddr().String()
+	return instance.Servers()[0].LocalAddr().String(), dir
 }
 
 // exchange sends q to addr over UDP and fails the test on transport errors.
@@ -143,17 +157,28 @@ func waitForBlock(t *testing.T, addr string) {
 // of a blocked lookup, and that blocked names never reach the upstream.
 //
 // It belongs to the CoreDNS integration of filterlist: a real CoreDNS server
-// with the plugin chain "cache -> filterlist -> upstream", as in production
-// deployments that place cache before filterlist. CoreDNS v1.15.0 changed what
-// the cache plugin does with the AA flag and with SERVFAIL, which no mock-based
-// unit test can observe.
+// with the plugin chain in both orders, "filterlist -> cache -> upstream"
+// (recommended) and "cache -> filterlist -> upstream". CoreDNS v1.15.0 changed
+// what the cache plugin does with the AA flag and with SERVFAIL, which no
+// mock-based unit test can observe.
 //
-// It queries a blocked name twice. Both answers must be NXDOMAIN with the
+// For each order it queries a blocked name twice. Both answers must be NXDOMAIN with the
 // negative-caching SOA, carry the same AA flag that filterlist sets (CoreDNS
 // v1.15.0 replays the cached AA bit instead of forcing it), and the stub
 // upstream must never be called.
 func TestChainBlockedAnswerStaysConsistentThroughCache(t *testing.T) {
-	addr := startChainServer(t)
+	for _, order := range chainOrders {
+		t.Run(order.name, func(t *testing.T) {
+			checkBlockedAnswerConsistent(t, order.cacheFirst)
+		})
+	}
+}
+
+// checkBlockedAnswerConsistent runs the scenario of
+// TestChainBlockedAnswerStaysConsistentThroughCache for one plugin order.
+func checkBlockedAnswerConsistent(t *testing.T, cacheFirst bool) {
+	t.Helper()
+	addr, _ := startChainServer(t, cacheFirst)
 	waitForBlock(t, addr)
 
 	q := new(dns.Msg)
@@ -201,7 +226,7 @@ func TestChainBlockedAnswerStaysConsistentThroughCache(t *testing.T) {
 // It asks twice for ok.example (upstream called exactly once, identical
 // answer) and then for blocked.example, which must still be NXDOMAIN.
 func TestChainForwardedAnswerIsCachedAndBlockingStillWorks(t *testing.T) {
-	addr := startChainServer(t)
+	addr, _ := startChainServer(t, false)
 	waitForBlock(t, addr)
 	chainStubCalls.Store(0)
 
@@ -236,7 +261,7 @@ func TestChainForwardedAnswerIsCachedAndBlockingStillWorks(t *testing.T) {
 // buffer and an unknown option, and expects NXDOMAIN with an OPT record that
 // keeps the DO bit but does not contain the unknown option.
 func TestChainEDNSOnBlockedAnswers(t *testing.T) {
-	addr := startChainServer(t)
+	addr, _ := startChainServer(t, false)
 	waitForBlock(t, addr)
 
 	q := new(dns.Msg)
@@ -276,7 +301,7 @@ func TestChainEDNSOnBlockedAnswers(t *testing.T) {
 // called exactly once and the reply not to be NXDOMAIN, while a regular QUERY
 // for the same name stays blocked.
 func TestChainNotifyForBlockedNamePassesThrough(t *testing.T) {
-	addr := startChainServer(t)
+	addr, _ := startChainServer(t, false)
 	waitForBlock(t, addr)
 	chainStubCalls.Store(0)
 
@@ -295,4 +320,62 @@ func TestChainNotifyForBlockedNamePassesThrough(t *testing.T) {
 	if resp := exchange(t, addr, q); resp.Rcode != dns.RcodeNameError {
 		t.Errorf("QUERY for blocked.example rcode = %s, want NXDOMAIN", dns.RcodeToString[resp.Rcode])
 	}
+}
+
+// TestChainListChangesTakeEffectOnlyBeforeCache verifies the operational reason
+// for the recommended plugin order: an operator who adds a domain to the
+// denylist wants it blocked right away, even if clients resolved it before.
+//
+// It belongs to the CoreDNS integration of filterlist: the hot reload of the
+// filter directories is only as immediate as the position of filterlist
+// relative to the cache plugin, because a cache hit never reaches plugins
+// behind the cache.
+//
+// For each plugin order it resolves ok.example (answer is cached), appends it
+// to the denylist, waits until the reload is visible through a fresh probe
+// name, and asks again. With filterlist before cache the name must be blocked;
+// with cache before filterlist the stale cached answer is served, which pins
+// the documented downside of that order.
+func TestChainListChangesTakeEffectOnlyBeforeCache(t *testing.T) {
+	for _, order := range chainOrders {
+		t.Run(order.name, func(t *testing.T) {
+			addr, denyDir := startChainServer(t, order.cacheFirst)
+			waitForBlock(t, addr)
+
+			q := new(dns.Msg)
+			q.SetQuestion("ok.example.", dns.TypeA)
+			if resp := exchange(t, addr, q.Copy()); resp.Rcode != dns.RcodeSuccess || len(resp.Answer) != 1 {
+				t.Fatalf("initial lookup: rcode=%s answers=%v, want NOERROR with one A record", dns.RcodeToString[resp.Rcode], resp.Answer)
+			}
+
+			rules := []byte("||ok.example^\n||probe.example^\n")
+			if err := os.WriteFile(filepath.Join(denyDir, "added.txt"), rules, 0o600); err != nil {
+				t.Fatalf("write added denylist: %v", err)
+			}
+			waitForProbeBlocked(t, addr)
+
+			resp := exchange(t, addr, q.Copy())
+			blocked := resp.Rcode == dns.RcodeNameError
+			if blocked == order.cacheFirst {
+				t.Errorf("ok.example blocked=%v after being added to the denylist, want %v", blocked, !order.cacheFirst)
+			}
+		})
+	}
+}
+
+// waitForProbeBlocked polls fresh names under probe.example until one is
+// blocked, which proves the watcher has published the reloaded matchers. Each
+// poll uses a new name so a cached answer cannot hide the reload.
+func waitForProbeBlocked(t *testing.T, addr string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
+		q := new(dns.Msg)
+		q.SetQuestion(fmt.Sprintf("p%d.probe.example.", i), dns.TypeTXT)
+		if resp := exchange(t, addr, q); resp.Rcode == dns.RcodeNameError {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("reloaded denylist never became active")
 }

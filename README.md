@@ -42,7 +42,7 @@ To use `filterlist` in production, build a custom CoreDNS binary that includes t
 
 1. Clone the CoreDNS repository and enter it.
 2. Add the `filterlist` module as a dependency.
-3. Register `filterlist` in `plugin.cfg` **before** `forward` so it is inserted earlier in the CoreDNS plugin chain.
+3. Register `filterlist` in `plugin.cfg` **before** `cache` and `forward` so it is inserted earlier in the CoreDNS plugin chain.
 4. Regenerate the generated plugin glue.
 5. Build CoreDNS.
 
@@ -55,13 +55,15 @@ cd coredns
 go get github.com/TomTonic/filterlist@latest
 ```
 
-Then edit `plugin.cfg` and add this line before `forward`:
+Then edit `plugin.cfg` and add this line before `cache` and `forward`:
 
 ```txt
 filterlist:github.com/TomTonic/filterlist
 ```
 
 The important order is the CoreDNS plugin chain generated from `plugin.cfg`, not the order in which Go downloads modules and not the stanza order in the Corefile. `go get` only makes the module available to the build. `filterlist` must be listed before `forward` in `plugin.cfg` so the generated handler chain reaches `filterlist` before `forward` answers the query.
+
+Also place it before `cache`. A cache hit never reaches plugins behind the cache, so with `cache` first (1) a domain you just added to the denylist stays resolvable until its cached answer expires, and a domain you removed stays blocked until its cached answer expires (at most the block `ttl`, further capped by the cache plugin's own limits), (2) blocked names occupy cache memory, and (3) `coredns_filterlist_queries_total` and `log_queries` only see cache misses. Placing `filterlist` first costs one cheap matcher lookup per query.
 
 After updating `plugin.cfg`, regenerate and build:
 
