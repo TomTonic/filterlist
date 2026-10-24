@@ -221,13 +221,13 @@ Those tests assert that:
 
 ## Query Flow
 
-0. Messages with an opcode other than QUERY (NOTIFY, UPDATE) are passed to the next plugin unfiltered, because their question names a zone, not a lookup
-1. Normalize query name (lowercase, remove trailing dot)
-2. Check allowlist matcher → if match, **allow** (forward to next plugin)
-3. `deny_non_allowlisted` — if enabled, **block** every allowlist miss
-4. RFC / IDNA precheck — if not disabled, **block** names that violate RFC 1035 or the IDNA Lookup profile
-5. Check denylist matcher → if match, **block** according to action
-6. No match → forward to next plugin
+1. Messages with an opcode other than QUERY (NOTIFY, UPDATE) are passed to the next plugin unfiltered, because their question names a zone, not a lookup
+2. Normalize query name (lowercase, remove trailing dot)
+3. Check allowlist matcher → if match, **allow** (forward to next plugin)
+4. `deny_non_allowlisted` — if enabled, **block** every allowlist miss
+5. RFC / IDNA precheck — if not disabled, **block** names that violate RFC 1035 or the IDNA Lookup profile
+6. Check denylist matcher → if match, **block** according to action
+7. No match → forward to next plugin
 
 ## Metrics
 
@@ -300,7 +300,8 @@ sum by (result) (rate(coredns_filterlist_queries_total{result=~"blocked_.*"}[5m]
 # Run tests
 go test ./... -count=1
 
-# Run tests with race detector
+# Run tests with race detector (includes chain_integration_test.go, which starts
+# a real CoreDNS server on a loopback port)
 go test ./... -race -count=1
 
 # Run linter

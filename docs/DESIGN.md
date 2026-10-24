@@ -90,6 +90,8 @@ query
        v
 filterlist ServeDNS
        |
+       +--> opcode != QUERY (NOTIFY, UPDATE) or no question -> next plugin
+       |
        +--> whitelist snapshot -> match? yes -> next plugin
        |
        +--> deny_non_allowlisted (if enabled) -> block
@@ -287,14 +289,17 @@ problems.
 
 The request path is intentionally short:
 
-1. normalize the queried name to lowercase without the trailing root dot;
-2. match against the active whitelist matcher (suffix map first, then DFA);
-3. if matched, allow the query to continue to the next plugin;
-4. if `strict_name_validation` is enabled, reject names failing RFC/IDNA checks;
+1. pass messages without a question or with an opcode other than QUERY
+   (NOTIFY, UPDATE) to the next plugin unfiltered, because their question
+   names a zone, not a lookup;
+2. normalize the queried name to lowercase without the trailing root dot;
+3. match against the active whitelist matcher (suffix map first, then DFA);
+4. if matched, allow the query to continue to the next plugin;
 5. if `deny_non_allowlisted` is enabled, reject every non-allowlisted name;
-6. otherwise match against the active blacklist matcher;
-7. if matched, synthesize the configured blocked response;
-8. otherwise forward unchanged to the next plugin.
+6. unless `disable_RFC_checks` is set, reject names failing the RFC/IDNA checks;
+7. otherwise match against the active blacklist matcher;
+8. if matched, synthesize the configured blocked response;
+9. otherwise forward unchanged to the next plugin.
 
 The plugin stores the currently active matcher snapshots in atomic state, so
 the hot path performs no lock acquisition.
