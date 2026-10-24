@@ -1,0 +1,6 @@
+core_dependencies:
+  - module: github.com/coredns/coredns
+    name: coredns
+changelog_sources:
+  - module: github.com/coredns/coredns
+    url: https://github.com/coredns/coredns/releases
