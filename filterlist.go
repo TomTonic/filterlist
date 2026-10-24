@@ -191,9 +191,14 @@ func (rf *Plugin) GetDenylist() *matcher.Matcher {
 // response writer, and DNS message for the current query. ServeDNS returns the
 // DNS rcode written to the client together with any write error; whitelist
 // matches are forwarded, blacklist matches are blocked according to Action, and
-// unmatched queries are delegated to the next plugin.
+// unmatched queries are delegated to the next plugin. Messages with an opcode
+// other than QUERY (NOTIFY, UPDATE) and messages without a question are never
+// filtered and are passed to the next plugin unchanged.
 func (rf *Plugin) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
-	if len(r.Question) == 0 {
+	// Only QUERY messages carry a name a client wants to resolve. For NOTIFY and
+	// UPDATE the question section names a zone, so filtering it would break zone
+	// maintenance (e.g. block every UPDATE under deny_non_allowlisted).
+	if len(r.Question) == 0 || r.Opcode != dns.OpcodeQuery {
 		return plugin.NextOrFailure(rf.Name(), rf.Next, ctx, w, r)
 	}
 

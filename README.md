@@ -221,6 +221,7 @@ Those tests assert that:
 
 ## Query Flow
 
+0. Messages with an opcode other than QUERY (NOTIFY, UPDATE) are passed to the next plugin unfiltered, because their question names a zone, not a lookup
 1. Normalize query name (lowercase, remove trailing dot)
 2. Check allowlist matcher → if match, **allow** (forward to next plugin)
 3. `deny_non_allowlisted` — if enabled, **block** every allowlist miss

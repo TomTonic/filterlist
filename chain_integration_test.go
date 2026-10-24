@@ -65,8 +65,8 @@ func (chainStub) ServeDNS(_ context.Context, w dns.ResponseWriter, r *dns.Msg) (
 // startChainServer boots a real CoreDNS server on a random loopback UDP port
 // with the plugin order "cache, filterlist, stub upstream" and returns its
 // address. The denylist contains blocked.example and the server is stopped via
-// t.Cleanup. Extra filterlist directives can be passed in filterlistOpts.
-func startChainServer(t *testing.T, filterlistOpts string) string {
+// t.Cleanup.
+func startChainServer(t *testing.T) string {
 	t.Helper()
 	chainServerMu.Lock()
 	t.Cleanup(chainServerMu.Unlock)
@@ -89,8 +89,8 @@ func startChainServer(t *testing.T, filterlistOpts string) string {
 	caddy.Quiet, dnsserver.Quiet = true, true
 	chainStubCalls.Store(0)
 
-	corefile := fmt.Sprintf(".:0 {\n bind 127.0.0.1\n cache\n filterlist {\n  denylist_dir %s\n  ttl 60\n  %s\n }\n %s\n}\n",
-		dir, filterlistOpts, chainStubName)
+	corefile := fmt.Sprintf(".:0 {\n bind 127.0.0.1\n cache\n filterlist {\n  denylist_dir %s\n  ttl 60\n }\n %s\n}\n",
+		dir, chainStubName)
 	instance, err := caddy.Start(caddy.CaddyfileInput{
 		Filepath:       "Corefile",
 		Contents:       []byte(corefile),
@@ -121,21 +121,21 @@ func exchange(t *testing.T, addr string, q *dns.Msg) *dns.Msg {
 	return resp
 }
 
-// waitForBlock polls until the freshly started server blocks name, because the
+// waitForBlock polls until the freshly started server blocks blocked.example, because the
 // watcher publishes the initial matchers asynchronously after startup.
-func waitForBlock(t *testing.T, addr, name string) {
+func waitForBlock(t *testing.T, addr string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		q := new(dns.Msg)
-		q.SetQuestion(name, dns.TypeTXT) // TXT is never cached as a positive stub answer.
+		q.SetQuestion("blocked.example.", dns.TypeTXT) // TXT is never cached as a positive stub answer.
 		q.Question[0].Qclass = dns.ClassINET
 		if resp := exchange(t, addr, q); resp.Rcode == dns.RcodeNameError || len(resp.Ns) > 0 {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("denylist never became active for %s", name)
+	t.Fatalf("denylist never became active")
 }
 
 // TestChainBlockedAnswerStaysConsistentThroughCache verifies that a user whose
@@ -153,8 +153,8 @@ func waitForBlock(t *testing.T, addr, name string) {
 // v1.15.0 replays the cached AA bit instead of forcing it), and the stub
 // upstream must never be called.
 func TestChainBlockedAnswerStaysConsistentThroughCache(t *testing.T) {
-	addr := startChainServer(t, "")
-	waitForBlock(t, addr, "blocked.example.")
+	addr := startChainServer(t)
+	waitForBlock(t, addr)
 
 	q := new(dns.Msg)
 	q.SetQuestion("blocked.example.", dns.TypeA)
@@ -201,8 +201,8 @@ func TestChainBlockedAnswerStaysConsistentThroughCache(t *testing.T) {
 // It asks twice for ok.example (upstream called exactly once, identical
 // answer) and then for blocked.example, which must still be NXDOMAIN.
 func TestChainForwardedAnswerIsCachedAndBlockingStillWorks(t *testing.T) {
-	addr := startChainServer(t, "")
-	waitForBlock(t, addr, "blocked.example.")
+	addr := startChainServer(t)
+	waitForBlock(t, addr)
 	chainStubCalls.Store(0)
 
 	q := new(dns.Msg)
@@ -236,8 +236,8 @@ func TestChainForwardedAnswerIsCachedAndBlockingStillWorks(t *testing.T) {
 // buffer and an unknown option, and expects NXDOMAIN with an OPT record that
 // keeps the DO bit but does not contain the unknown option.
 func TestChainEDNSOnBlockedAnswers(t *testing.T) {
-	addr := startChainServer(t, "")
-	waitForBlock(t, addr, "blocked.example.")
+	addr := startChainServer(t)
+	waitForBlock(t, addr)
 
 	q := new(dns.Msg)
 	q.SetQuestion("blocked.example.", dns.TypeA)
@@ -260,5 +260,39 @@ func TestChainEDNSOnBlockedAnswers(t *testing.T) {
 		if o.Option() == 65001 {
 			t.Error("unknown EDNS option was echoed back to the client")
 		}
+	}
+}
+
+// TestChainNotifyForBlockedNamePassesThrough verifies that zone maintenance
+// traffic still reaches the upstream handler in a running server, even when
+// the zone name is on the denylist, so filtering never interferes with zone
+// transfers.
+//
+// It belongs to the CoreDNS integration of filterlist: CoreDNS admits NOTIFY
+// by default and hands it down the plugin chain like any other message, so
+// filterlist must not treat the zone name in the question as a lookup.
+//
+// It sends a NOTIFY for blocked.example and expects the stub upstream to be
+// called exactly once and the reply not to be NXDOMAIN, while a regular QUERY
+// for the same name stays blocked.
+func TestChainNotifyForBlockedNamePassesThrough(t *testing.T) {
+	addr := startChainServer(t)
+	waitForBlock(t, addr)
+	chainStubCalls.Store(0)
+
+	n := new(dns.Msg)
+	n.SetNotify("blocked.example.")
+	resp := exchange(t, addr, n)
+	if resp.Rcode == dns.RcodeNameError {
+		t.Error("NOTIFY for a denylisted zone was answered with NXDOMAIN by filterlist")
+	}
+	if got := chainStubCalls.Load(); got != 1 {
+		t.Errorf("upstream called %d times for one NOTIFY, want 1", got)
+	}
+
+	q := new(dns.Msg)
+	q.SetQuestion("blocked.example.", dns.TypeA)
+	if resp := exchange(t, addr, q); resp.Rcode != dns.RcodeNameError {
+		t.Errorf("QUERY for blocked.example rcode = %s, want NXDOMAIN", dns.RcodeToString[resp.Rcode])
 	}
 }

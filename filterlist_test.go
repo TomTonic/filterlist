@@ -1387,3 +1387,61 @@ func TestServeDNSDenyNonAllowlistedRunsBeforeRFC(t *testing.T) {
 		t.Error("next handler must not be called")
 	}
 }
+
+// TestServeDNSPassesNonQueryOpcodesThrough verifies that zone maintenance
+// traffic such as NOTIFY and UPDATE reaches the plugins behind filterlist
+// untouched, even when the zone name is on the denylist, fails the RFC name
+// check, or deny_non_allowlisted is active, so a DNS filter never breaks zone
+// transfers or dynamic updates.
+//
+// It belongs to the request handler of the CoreDNS plugin: only opcode QUERY
+// carries a name that a client wants to resolve. For every other opcode the
+// question section names a zone, which is not a lookup to be filtered.
+//
+// Each sub-test configures one blocking rule, sends a message with a
+// non-QUERY opcode for a name that rule would block, and asserts that the next
+// handler was called and that filterlist wrote no response of its own. A
+// control case asserts that a normal QUERY for the same name is still blocked.
+func TestServeDNSPassesNonQueryOpcodesThrough(t *testing.T) {
+	tests := []struct {
+		name      string
+		opcode    int
+		config    Config
+		qname     string
+		wantBlock bool
+	}{
+		{"passes NOTIFY for a denylisted zone", dns.OpcodeNotify, Config{}, "ads.example.com", false},
+		{"passes UPDATE for a denylisted zone", dns.OpcodeUpdate, Config{}, "ads.example.com", false},
+		{"passes NOTIFY when deny_non_allowlisted is set", dns.OpcodeNotify, Config{DenyNonAllowlisted: true}, "zone.example.org", false},
+		{"passes UPDATE when the zone name violates the RFC check", dns.OpcodeUpdate, Config{}, "bad name.example.org", false},
+		{"still blocks a QUERY for the denylisted name", dns.OpcodeQuery, Config{}, "ads.example.com", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			next := &mockNextHandler{}
+			tt.config.Action = ActionConfig{Mode: "nxdomain"}
+			rf := &Plugin{Next: next, Config: tt.config}
+			rf.SetDenylist(buildMatcher(t, []string{"ads.example.com"}))
+
+			r := makeQuery(tt.qname, dns.TypeSOA)
+			r.Opcode = tt.opcode
+			w := newMockWriter()
+
+			if _, err := rf.ServeDNS(context.Background(), w, r); err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantBlock {
+				if next.called || w.msg == nil || w.msg.Rcode != dns.RcodeNameError {
+					t.Errorf("QUERY was not blocked: next called=%v msg=%v", next.called, w.msg)
+				}
+				return
+			}
+			if !next.called {
+				t.Error("non-QUERY message did not reach the next handler")
+			}
+			if w.msg != nil && w.msg.Rcode == dns.RcodeNameError {
+				t.Error("filterlist answered a non-QUERY message with NXDOMAIN")
+			}
+		})
+	}
+}
